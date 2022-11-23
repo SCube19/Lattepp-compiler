@@ -51,6 +51,7 @@
         "streambuf": "cpp",
         "cinttypes": "cpp",
         "typeinfo": "cpp",
-        "Skeleton.H": "cpp"
+        "Skeleton.H": "cpp",
+        "Printer.C": "cpp"
     }
 }

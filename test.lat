@@ -1,0 +1,11 @@
+class X {
+
+}
+
+class X extends Y {
+
+}
+
+int main() {
+	int x;
+}

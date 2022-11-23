@@ -1,25 +1,18 @@
-CC=g++ -g
-CCFLAGS= --std=c++2a -W -Wall -pedantic -Wsign-conversion -Wno-unused-parameter -Wno-unused-function
-SYNTAX_OBJ=syntax/Parser.o syntax/Absyn.o syntax/Printer.o syntax/Buffer.o syntax/Lexer.o
-SYNTAX_FILES=syntax/Absyn.C syntax/Absyn.H syntax/Bison.H syntax/Buffer.C syntax/Buffer.H syntax/Lexer.C\
-	syntax/Parser.C syntax/Parser.H syntax/ParserError.H syntax/Printer.C syntax/Printer.H syntax/Skeleton.C\
-	syntax/Skeleton.H syntax/Test.C syntax/Makefile
-TYPECHECKER_FILES=typechecker/typechecker.h typechecker/typechecker.cpp typechecker/structures.h
+all : compiler
 
-all: main syntaxTarget typechecker utils 
-	${CC} ${CCFLAGS} main.o utils.o typechecker/typechecker.o ${SYNTAX_OBJ} -o latc
+compiler : Main.hs Utils.hs syntax typechecker optimizer
+	ghc Main.hs -o latc
 
-main: main.cpp syntaxTarget
-	${CC} ${CCFLAGS} -c main.cpp -o main.o
+syntax : Syntax/AbsLattepp.hs Syntax/LexLattepp.hs Syntax/ParLattepp.hs
 
-utils: utils.h utils.cpp
-	${CC} ${CCFLAGS} -c utils.cpp -o utils.o
+optimizer : Optimizer/Optimizer.hs Optimizer/OptimizerData.hs
 
-typechecker: ${TYPECHECKER_FILES} syntaxTarget
-	${CC} ${CCFLAGS} -c typechecker/typechecker.cpp -o typechecker/typechecker.o
+typechecker : Typechecker/TypeChecker.hs Typechecker/TypeCheckerData.hs
 
-syntaxTarget: ${SYNTAX_FILES}
-	cd syntax && make && cd ..
+# compiler : Compiler/Compiler.hs Compiler/CompilerData.hs 
 
-clean:
-	rm -r *.o && cd syntax && make clean && cd ..
+clean :
+	-rm -f *.hi *.o *.log *.aux *.dvi interpreter
+	-rm -f Optimizer/*.o Evaluator/*.hi
+	-rm -f Typechecker/*.o Typechecker/*.hi
+	-make -C Syntax clean
