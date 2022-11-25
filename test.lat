@@ -1,6 +1,9 @@
 int main() {
-	int x = 1 + 2 + 3 + 4;
-	int y =  p + 1 + 2 + p + 3;
-	int z = (1 + p + 1) * 4 * (1 + x);
-	int h = 1 + x + 10;
+	while(x) {
+		string y = "";
+		return;
+		int pppp = 1255553;
+	}
+	return 1;
+	int p = 123;
 }

@@ -22,10 +22,10 @@ runProgram s = do
   tokens <- tokenize s
   typeCheck tokens
   optimized <- optimize tokens
-  liftIO $ print optimized
   checkReturns optimized
-  cleanDeadCode optimized  
-  compile optimized
+  cleaned <- cleanDeadCode optimized
+  liftIO $ print $ "Cleaned code: " ++ show cleaned
+  compile cleaned
 
 main :: IO ()
 main = do

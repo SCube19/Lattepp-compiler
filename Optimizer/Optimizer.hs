@@ -8,6 +8,7 @@ import Control.Monad.Trans.State (StateT(runStateT), evalStateT, get, gets, put)
 import qualified Data.Map as M
 import Utils (rawBool, rawInt, rawStr, Raw (raw), rawExtIdent)
 import Control.Monad.IO.Class (MonadIO(liftIO))
+import Debug.Trace
 
 optimize :: Program -> ExceptT String IO Program
 optimize (Program pos defs) = do
@@ -31,12 +32,12 @@ optimizeBlock :: Block -> OptimizerState Block
 optimizeBlock (Block pos stmts) = do
     st <- get
     newStmts <- localOptimizerEnv st (mapM optimizeStmt stmts)
-    return $ Block pos (filter isNotEmptyStmt newStmts)
+    return $ Block pos newStmts
 
 optimizeClassBlock :: ClassBlock -> OptimizerState ClassBlock
 optimizeClassBlock (ClassBlock pos stmts) = do
     newStmts <- mapM optimizeClassStmt stmts
-    return $ ClassBlock pos (filter isNotEmptyClassStmt newStmts)
+    return $ ClassBlock pos newStmts
 
 optimizeClassStmt :: ClassStmt -> OptimizerState ClassStmt
 optimizeClassStmt (ClassEmpty pos) = return $ ClassEmpty pos
@@ -272,28 +273,100 @@ optimizeExpr(ERel pos expr1 op expr2) = do
 optimizeExpr(EAnd pos expr1 expr2) = do
     newExpr1 <- optimizeExpr expr1
     if isELitBool newExpr1 then
-        case newExpr1 of 
+        case newExpr1 of
             ELitFalse _ -> return $ ELitFalse pos
             ELitTrue _ -> optimizeExpr expr2
             _ -> undefined
-    else do 
+    else do
         newExpr2 <- optimizeExpr expr2
         return $ EAnd pos newExpr1 newExpr2
 
 optimizeExpr(EOr pos expr1 expr2) = do
     newExpr1 <- optimizeExpr expr1
     if isELitBool newExpr1 then
-        case newExpr1 of 
+        case newExpr1 of
             ELitTrue _ -> return $ ELitTrue pos
             ELitFalse _ -> optimizeExpr expr2
             _ -> undefined
-    else do 
+    else do
         newExpr2 <- optimizeExpr expr2
         return $ EOr pos newExpr1 newExpr2
 
 
 ---------------------------------------------------------------------------------------------------------------
+--never used funcs (keep track of usage and filter defs at the end) when time
+--never used arguments (?) when time
+--return based dead code (OK)
+--if/while/for based dead code (OK)
+
 cleanDeadCode :: Program -> ExceptT String IO Program
-cleanDeadCode = return
+cleanDeadCode (Program pos defs) = do 
+    return $ Program pos (map cleanDeadCodeTopDef defs)
 
+cleanDeadCodeTopDef :: TopDef -> TopDef
+cleanDeadCodeTopDef (FnDef pos ret ident args block) =
+    FnDef pos ret ident args (cleanDeadCodeBlock block)
 
+cleanDeadCodeTopDef (ClassDef pos ident block) =
+    ClassDef pos ident (cleanDeadCodeClassBlock block)
+
+cleanDeadCodeTopDef (ExtClassDef pos ident ext block) =
+    ExtClassDef pos ident ext (cleanDeadCodeClassBlock block)
+
+cleanDeadCodeBlock :: Block -> Block
+cleanDeadCodeBlock (Block pos stmts) =
+    Block pos (filter isNotEmptyStmt (cleanDeadCodeStmt stmts))
+
+cleanDeadCodeClassBlock :: ClassBlock -> ClassBlock
+cleanDeadCodeClassBlock (ClassBlock pos stmts) =
+    ClassBlock pos (filter isNotEmptyClassStmt (map cleanDeadCodeClassStmt stmts))
+
+cleanDeadCodeClassStmt :: ClassStmt -> ClassStmt
+cleanDeadCodeClassStmt stmt@(ClassEmpty pos) = stmt
+
+cleanDeadCodeClassStmt stmt@(ClassDecl pos t items) = stmt
+
+cleanDeadCodeClassStmt (ClassMethod pos ret ident args block) =
+    ClassMethod pos ret ident args (cleanDeadCodeBlock block)
+
+cleanDeadCodeExtIdent :: ExtIdent -> ExtIdent
+cleanDeadCodeExtIdent i = i
+
+cleanDeadCodeStmt :: [Stmt] -> [Stmt]
+cleanDeadCodeStmt [] = []
+cleanDeadCodeStmt (s:ss) = case s of
+  BStmt pos block -> BStmt pos (cleanDeadCodeBlock block) : cleanDeadCodeStmt ss
+  Ret _ _ -> [s]
+  VRet _ -> [s]
+  While pos expr stmt ->
+    if isELitBool expr then
+        case expr of
+            ELitFalse _ -> Empty pos : cleanDeadCodeStmt ss
+            ELitTrue _ -> [While pos expr (head $ cleanDeadCodeStmt [stmt])]
+            _ -> undefined
+    else
+        While pos expr (head $ cleanDeadCodeStmt [stmt]) : cleanDeadCodeStmt ss
+  Cond pos expr stmt ->
+    if isELitBool expr then
+        case expr of
+            ELitFalse _ -> Empty pos : cleanDeadCodeStmt ss
+            ELitTrue _ -> BStmt pos (Block pos (cleanDeadCodeStmt [stmt])) : cleanDeadCodeStmt ss
+            _ -> undefined
+    else
+        Cond pos expr (head $ cleanDeadCodeStmt [stmt]) : cleanDeadCodeStmt ss
+  CondElse pos expr istmt estmt ->
+    if isELitBool expr then
+        case expr of
+            ELitTrue _ -> BStmt pos (Block pos (cleanDeadCodeStmt [istmt])) : cleanDeadCodeStmt ss
+            ELitFalse _ -> BStmt pos (Block pos (cleanDeadCodeStmt [estmt])) : cleanDeadCodeStmt ss
+            _ -> undefined
+    else
+        CondElse pos expr (head $ cleanDeadCodeStmt [istmt]) (head $ cleanDeadCodeStmt [estmt]) : cleanDeadCodeStmt ss
+  For pos t ident1 ident2 fstmt -> For pos t ident1 ident2 (head $ cleanDeadCodeStmt [fstmt]) : cleanDeadCodeStmt ss
+  _ -> s : cleanDeadCodeStmt ss
+
+cleanDeadCodeItem :: Type -> Item -> Item
+cleanDeadCodeItem t i = i
+
+cleanDeadCodeExpr :: Expr -> Expr
+cleanDeadCodeExpr e = e

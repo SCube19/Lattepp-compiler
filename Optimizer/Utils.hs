@@ -36,3 +36,12 @@ extractBool _ = undefined
 extractString :: Expr -> String
 extractString (EString _ s) = s
 extractString _ = undefined
+
+
+
+
+
+
+
+
+
