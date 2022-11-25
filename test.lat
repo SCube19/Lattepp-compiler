@@ -1,11 +1,6 @@
-class X {
-
-}
-
-class X extends Y {
-
-}
-
 int main() {
-	int x;
+	int x = 1 + 2 + 3 + 4;
+	int y =  p + 1 + 2 + p + 3;
+	int z = (1 + p + 1) * 4 * (1 + x);
+	int h = 1 + x + 10;
 }

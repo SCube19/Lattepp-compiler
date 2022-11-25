@@ -1,17 +1,22 @@
 module Optimizer.Optimizer where
 
 import Syntax.AbsLattepp
+import Optimizer.Utils
 import Control.Monad.Trans.Except (ExceptT, runExceptT)
-
+import Optimizer.Data (OptimizerState, OptimizerS (consts), initOptimizerS, localOptimizerEnv, castInteger, castString, castBool, putConst, Value (IntV, StrV, BoolV))
+import Control.Monad.Trans.State (StateT(runStateT), evalStateT, get, gets, put)
+import qualified Data.Map as M
+import Utils (rawBool, rawInt, rawStr, Raw (raw), rawExtIdent)
+import Control.Monad.IO.Class (MonadIO(liftIO))
 
 optimize :: Program -> ExceptT String IO Program
 optimize (Program pos defs) = do
-    newDefs <- mapM optimizeTopDef defs
+    newDefs <- evalStateT (mapM optimizeTopDef defs) initOptimizerS
     return $ Program pos newDefs
 
-optimizeTopDef :: TopDef -> ExceptT String IO TopDef
+optimizeTopDef :: TopDef -> OptimizerState TopDef
 optimizeTopDef (FnDef pos ret ident args block) = do
-    newBlock <- optimizeBlock block
+    newBlock <- localOptimizerEnv initOptimizerS (optimizeBlock block)
     return $ FnDef pos ret ident args newBlock
 
 optimizeTopDef (ClassDef pos ident block) = do
@@ -22,41 +27,273 @@ optimizeTopDef (ExtClassDef pos ident ext block) = do
     newBlock <- optimizeClassBlock block
     return $ ExtClassDef pos ident ext newBlock
 
-optimizeBlock :: Block -> ExceptT String IO Block
+optimizeBlock :: Block -> OptimizerState Block
 optimizeBlock (Block pos stmts) = do
-    newStmts <- mapM optimizeStmt stmts
-    return $ Block pos (filter isNotEmptyStmt newStmts) 
+    st <- get
+    newStmts <- localOptimizerEnv st (mapM optimizeStmt stmts)
+    return $ Block pos (filter isNotEmptyStmt newStmts)
 
-optimizeClassBlock :: ClassBlock -> ExceptT String IO ClassBlock
+optimizeClassBlock :: ClassBlock -> OptimizerState ClassBlock
 optimizeClassBlock (ClassBlock pos stmts) = do
     newStmts <- mapM optimizeClassStmt stmts
-    return $ ClassBlock pos (filter isNotEmptyClassStmt newStmts) 
+    return $ ClassBlock pos (filter isNotEmptyClassStmt newStmts)
 
-optimizeClassStmt :: ClassStmt -> ExceptT String IO ClassStmt
+optimizeClassStmt :: ClassStmt -> OptimizerState ClassStmt
 optimizeClassStmt (ClassEmpty pos) = return $ ClassEmpty pos
-optimizeClassStmt (ClassDecl pos ret items) = do
-    newItems <- mapM optimizeItem items
-    return $ ClassDecl pos ret newItems
+
+optimizeClassStmt (ClassDecl pos t items) = do
+    newItems <- mapM (optimizeItem t) items
+    return $ ClassDecl pos t newItems
 
 optimizeClassStmt (ClassMethod pos ret ident args block) = do
-    newBlock <- mapM optimizeBlock block
+    newBlock <- optimizeBlock block
     return $ ClassMethod pos ret ident args newBlock
 
-optimizeStmt :: Stmt -> ExceptT String IO Stmt
-optimizeStmt = return
+optimizeExtIdent :: ExtIdent -> OptimizerState ExtIdent
+optimizeExtIdent (Id pos ident) = return $ Id pos ident
 
-optimizeItem :: Item -> ExceptT String IO Item
-optimizeItem = return
+optimizeExtIdent (ArrId pos ident expr) = do
+    newExpr <- optimizeExpr expr
+    return $ ArrId pos ident newExpr
 
-optimizeExpr :: Expr -> ExceptT String IO Expr
-optimizeExpr = return 
+optimizeExtIdent (AttrId pos expr1 expr2) = do
+    newExpr1 <- case expr1 of
+            EVar _ _ -> return expr1
+            _ -> optimizeExpr expr1
+    newExpr2 <- case expr2 of
+            EVar _ _ -> return expr2
+            _ -> optimizeExpr expr2
+    return $ AttrId pos newExpr1 newExpr2
+
+optimizeStmt :: Stmt -> OptimizerState Stmt
+optimizeStmt (Empty pos) = return $ Empty pos
+
+optimizeStmt (BStmt pos block) = do
+    newBlock <- optimizeBlock block
+    return $ BStmt pos newBlock
+
+optimizeStmt (Decl pos t items) = do
+    newItems <- mapM (optimizeItem t) items
+    return $ Decl pos t newItems
+
+optimizeStmt (Ass pos ident expr) = do
+    newExpr <- optimizeExpr expr
+    newIdent <- optimizeExtIdent ident
+    st <- get
+    case newIdent of
+      Id _ id -> case newExpr of
+        ELitInt _ val -> put $ putConst st id (rawInt, IntV val)
+        ELitTrue _ -> put $ putConst st id (rawBool, BoolV True)
+        ELitFalse _ -> put $ putConst st id (rawBool, BoolV False)
+        EString _ s -> put $ putConst st id (rawStr, StrV s)
+        _ -> return ()
+      ArrId {} -> return ()
+      AttrId {} -> return ()
+    newSt <- get
+    liftIO $ print $ "After assingment: " ++ show (consts newSt)
+    return $ Ass pos ident newExpr
+
+optimizeStmt (Incr pos ident) = do
+    newIdent <- optimizeExtIdent ident
+    return $ Incr pos newIdent
+
+optimizeStmt (Decr pos ident) = do
+    newIdent <- optimizeExtIdent ident
+    return $ Decr pos newIdent
+
+optimizeStmt (Ret pos expr) = do
+    newExpr <- optimizeExpr expr
+    return $ Ret pos expr
+
+optimizeStmt (VRet pos) = return $ VRet pos
+
+optimizeStmt (Cond pos expr stmt) = do
+    newExpr <- optimizeExpr expr
+    st <- get
+    newStmt <- localOptimizerEnv st (optimizeStmt stmt)
+    return $ Cond pos newExpr newStmt
+
+optimizeStmt (CondElse pos expr stmt1 stmt2) = do
+    newExpr <- optimizeExpr expr
+    st <- get
+    newStmt1 <- localOptimizerEnv st (optimizeStmt stmt1)
+    newStmt2 <- localOptimizerEnv st (optimizeStmt stmt2)
+    return $ CondElse pos newExpr newStmt1 newStmt2
+
+optimizeStmt (While pos expr stmt) = do
+    newExpr <- optimizeExpr expr
+    st <- get
+    newStmt <- localOptimizerEnv st (optimizeStmt stmt)
+    return $ While pos newExpr newStmt
+
+optimizeStmt (For pos t ident1 ident2 stmt) = do
+    st <- get
+    newStmt <- localOptimizerEnv st (optimizeStmt stmt)
+    newIdent <- optimizeExtIdent ident2
+    return $ For pos t ident1 newIdent newStmt
+
+optimizeStmt (SExp pos expr) = do
+    newExpr <- optimizeExpr expr
+    return $ SExp pos newExpr
+
+optimizeItem :: Type -> Item -> OptimizerState Item
+optimizeItem  t (NoInit pos ident) = do
+    st <- get
+    case t of
+      Primitive _ pt -> do
+        put $ putConst st ident (raw pt, case pt of
+                                                Int _ -> IntV 0
+                                                Str _ -> StrV ""
+                                                Bool _ -> BoolV False
+                                                Void _ -> undefined)
+        newSt <- get
+        liftIO $ print $ "After decl: " ++ show (consts newSt)
+        return $ NoInit pos ident
+      _ -> return $ NoInit pos ident
+
+optimizeItem t (Init pos ident expr) = do
+    newExpr <- optimizeExpr expr
+    st <- get
+    case newExpr of
+        ELitInt _ val -> put $ putConst st ident (rawInt, IntV val)
+        ELitTrue _ -> put $ putConst st ident (rawBool, BoolV True)
+        ELitFalse _ -> put $ putConst st ident (rawBool, BoolV False)
+        EString _ s -> put $ putConst st ident (rawStr, StrV s)
+        _ -> return ()
+    newSt <- get
+    liftIO $ print $ "After declinit: " ++ show (consts newSt)
+    return $ Init pos ident newExpr
+
+optimizeExpr :: Expr -> OptimizerState Expr
+optimizeExpr(ECast pos ident expr) = do
+    newExpr <- optimizeExpr expr
+    return $ ECast pos ident newExpr
+
+optimizeExpr(ECastPrim pos t expr) = do
+    newExpr <- optimizeExpr expr
+    return $ ECastPrim pos t newExpr
+
+optimizeExpr(ENewObject pos ident) = return $ ENewObject pos ident
+
+optimizeExpr(ENewArr pos t expr) = do
+    newExpr <- optimizeExpr expr
+    return $ ENewArr pos t newExpr
+
+optimizeExpr(ENull pos) = return $ ENull pos
+
+optimizeExpr(EObject pos expr1 expr2) = do
+    newExpr1 <- optimizeExpr expr1
+    newExpr2 <- optimizeExpr expr2
+    return $ EObject pos newExpr1 newExpr2
+
+optimizeExpr(EArr pos ident expr) = do
+    newExpr <- optimizeExpr expr
+    return $ EArr pos ident newExpr
+
+optimizeExpr(EVar pos ident) = do
+    c <- gets consts
+    case M.lookup ident c of
+      Nothing -> return $ EVar pos ident
+      Just (t, val) -> case t of
+        Int _ -> return $ ELitInt pos (castInteger val)
+        Str _ -> return $ EString pos (castString val)
+        Bool _ -> return $ if castBool val then ELitTrue pos else ELitFalse pos
+        _ -> undefined
+
+optimizeExpr(ELitInt pos integer) = return $ ELitInt pos integer
+
+optimizeExpr(ELitTrue pos) = return $ ELitTrue pos
+
+optimizeExpr(ELitFalse pos) = return $ ELitFalse pos
+
+optimizeExpr(EApp pos ident exprs) = do
+    newExprs <- mapM optimizeExpr exprs
+    return $ EApp pos ident newExprs
+
+optimizeExpr(EString pos string) = return $ EString pos string
+
+optimizeExpr(Neg pos expr) = do
+    newExpr <- optimizeExpr expr
+    case newExpr of
+        ELitInt _ val -> return $ ELitInt pos (-val)
+        newExpr -> return $ Neg pos newExpr
+
+optimizeExpr(Not pos expr) = do
+    newExpr <- optimizeExpr expr
+    case newExpr of
+        ELitTrue _ -> return $ ELitFalse pos
+        ELitFalse _ -> return $ ELitTrue pos
+        newExpr -> return $ Neg pos newExpr
+
+optimizeExpr (EMul pos expr1 op expr2) = do
+    newExpr1 <- optimizeExpr expr1
+    newExpr2 <- optimizeExpr expr2
+    if isELitInt newExpr1 && isELitInt newExpr2 then
+        return $ ELitInt pos (case op of
+            Times _ -> extractInt newExpr1 * extractInt newExpr2
+            Div _ -> extractInt newExpr1 `div` extractInt newExpr2
+            Mod _ -> extractInt newExpr1 `mod` extractInt newExpr2)
+    else
+        return $ EMul pos newExpr1 op newExpr2
+
+optimizeExpr (EAdd pos expr1 op expr2) = do
+    newExpr1 <- optimizeExpr expr1
+    newExpr2 <- optimizeExpr expr2
+    if isELitInt newExpr1 && isELitInt newExpr2 then
+        return $ ELitInt pos (case op of
+            Plus _ -> extractInt newExpr1 + extractInt newExpr2
+            Minus _ -> extractInt newExpr1 - extractInt newExpr2)
+    else if isEString newExpr1 && isEString newExpr2 then
+        return $ EString pos (case op of
+           Plus _ -> extractString newExpr1 ++ extractString newExpr2
+           Minus _ -> undefined
+        )
+    else
+        return $ EAdd pos newExpr1 op newExpr2
+
+optimizeExpr(ERel pos expr1 op expr2) = do
+    newExpr1 <- optimizeExpr expr1
+    newExpr2 <- optimizeExpr expr2
+    if isELitInt newExpr1 && isELitInt newExpr2 then do
+        let result = (case op of
+                LTH _ -> extractInt newExpr1 < extractInt newExpr2
+                LE _ -> extractInt newExpr1 <= extractInt newExpr2
+                GTH _ -> extractInt newExpr1 > extractInt newExpr2
+                GE _ -> extractInt newExpr1 >= extractInt newExpr2
+                EQU _ -> extractInt newExpr1 == extractInt newExpr2
+                NE _ -> extractInt newExpr1 /= extractInt newExpr2)
+        if result then
+            return $ ELitTrue pos
+        else
+            return $ ELitFalse pos
+    else
+        return $ ERel pos newExpr1 op newExpr2
+
+optimizeExpr(EAnd pos expr1 expr2) = do
+    newExpr1 <- optimizeExpr expr1
+    if isELitBool newExpr1 then
+        case newExpr1 of 
+            ELitFalse _ -> return $ ELitFalse pos
+            ELitTrue _ -> optimizeExpr expr2
+            _ -> undefined
+    else do 
+        newExpr2 <- optimizeExpr expr2
+        return $ EAnd pos newExpr1 newExpr2
+
+optimizeExpr(EOr pos expr1 expr2) = do
+    newExpr1 <- optimizeExpr expr1
+    if isELitBool newExpr1 then
+        case newExpr1 of 
+            ELitTrue _ -> return $ ELitTrue pos
+            ELitFalse _ -> optimizeExpr expr2
+            _ -> undefined
+    else do 
+        newExpr2 <- optimizeExpr expr2
+        return $ EOr pos newExpr1 newExpr2
 
 
----------------------------------------------------------------------------
-isNotEmptyStmt :: Stmt -> Bool
-isNotEmptyStmt (Empty _) = False
-isNotEmptyStmt _ = True
+---------------------------------------------------------------------------------------------------------------
+cleanDeadCode :: Program -> ExceptT String IO Program
+cleanDeadCode = return
 
-isNotEmptyClassStmt :: ClassStmt -> Bool
-isNotEmptyClassStmt (ClassEmpty _) = False
-isNotEmptyClassStmt _ = True
+

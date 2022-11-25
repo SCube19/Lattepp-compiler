@@ -6,9 +6,10 @@ import Utils (exitError)
 import System.Directory.Internal.Prelude (exitFailure, getArgs)
 import System.Exit (exitSuccess)
 import System.IO ()
-import Optimizer.Optimizer (optimize)
-import Typechecker.TypeChecker ( typeCheck )
+import Optimizer.Optimizer (optimize, cleanDeadCode)
+import Typechecker.TypeChecker ( typeCheck, checkReturns )
 import Compiler.Compiler (compile)
+import Control.Monad.IO.Class (MonadIO(liftIO))
 
 
 tokenize :: String -> ExceptT String IO Program
@@ -19,8 +20,11 @@ tokenize s = case pProgram $ myLexer s of
 runProgram :: String -> ExceptT String IO String
 runProgram s = do
   tokens <- tokenize s
+  typeCheck tokens
   optimized <- optimize tokens
-  typecheck <- typeCheck optimized
+  liftIO $ print optimized
+  checkReturns optimized
+  cleanDeadCode optimized  
   compile optimized
 
 main :: IO ()

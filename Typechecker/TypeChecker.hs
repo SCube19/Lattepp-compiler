@@ -17,6 +17,9 @@ typeCheck :: Program -> ExceptT String IO ()
 typeCheck (Program _ stmts) = return ()
   -- evalStateT (typeCheckBlock stmts) initTypeCheckerS
 
+checkReturns :: Program -> ExceptT String IO ()
+checkReturns (Program _ stmts) = return ()
+
 -- typeCheckBlock :: [Stmt] -> TypeCheckerState ()
 -- typeCheckBlock stmts = do
 --   env <- get
