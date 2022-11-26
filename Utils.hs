@@ -20,20 +20,20 @@ exitError e = do
 -- class Typical a where
 --     toType :: a -> Type
 
--- getArgIdent :: Arg -> Ident
--- getArgIdent (Arg _ t ident) = ident
+getArgIdent :: Arg -> Ident
+getArgIdent (Arg _ t ident) = ident
 
--- makeFalsyTuple :: a -> (a, Bool)
--- makeFalsyTuple x = (x, False)
+makeFalsyTuple :: a -> (a, Bool)
+makeFalsyTuple x = (x, False)
 
--- throwException x = lift $ throwE $ show x
+throwException x = lift $ throwE $ "Static Error: " ++ show x
 
--- firstDuplicateIndex :: Ord a => [a] -> Maybe Int
--- firstDuplicateIndex xs = dup' xs Set.empty
---   where dup' [] _ = Nothing
---         dup' (x:xs) s = if Set.member x s
---                            then Just $ length s
---                            else dup' xs (Set.insert x s)
+firstDuplicateIndex :: Ord a => [a] -> Maybe Int
+firstDuplicateIndex xs = dup' xs Set.empty
+  where dup' [] _ = Nothing
+        dup' (x:xs) s = if Set.member x s
+                           then Just $ length s
+                           else dup' xs (Set.insert x s)
 
 -- -------------PRETTY-------------------------------------------------------------------
 class Pretty a where
@@ -109,6 +109,7 @@ instance Raw Expr where
     raw (ERel _ e1 op e2) = ERel Nothing (raw e1) (raw op) (raw e2)
     raw (EAnd _ e1 e2) = EAnd Nothing (raw e1) (raw e2)
     raw (EOr _ e1 e2) = EOr Nothing (raw e1) (raw e2)
+
 instance Raw AddOp where
     raw (Plus _) = Plus Nothing
     raw (Minus _) = Minus Nothing
@@ -130,6 +131,5 @@ rawInt = Int Nothing
 rawStr = Str Nothing
 rawBool = Bool Nothing
 rawVoid = Void Nothing
-
-rawExtIdent :: Ident -> ExtIdent
+rawFun = Fun Nothing (Primitive Nothing (Void Nothing)) []
 rawExtIdent = Id Nothing

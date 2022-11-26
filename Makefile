@@ -13,6 +13,7 @@ typechecker : Typechecker/TypeChecker.hs Typechecker/Data.hs Typechecker/Utils.h
 
 clean :
 	-rm -f *.hi *.o *.log *.aux *.dvi interpreter
-	-rm -f Optimizer/*.o Evaluator/*.hi
+	-rm -f Optimizer/*.o Optimizer/*.hi
 	-rm -f Typechecker/*.o Typechecker/*.hi
+	-rm -f Compiler/*.o Compiler/*.hi
 	-make -C Syntax clean
