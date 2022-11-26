@@ -13,58 +13,57 @@ import Utils (Pretty(pretty))
 type TypeCheckerState = StateT TypeCheckerS (ExceptT String IO)
 
 data TypeCheckerS = TypeCheckerS {
-  typeEnv :: M.Map Ident (Type, Bool),
+  typeEnv :: M.Map Ident Type,
+  classEnv :: M.Map Ident (Maybe Ident, ClassDefS), -- add setter/adder
+  funEnv :: M.Map Ident (Type, [Type]), -- add setter/adder
   scope :: S.Set Ident,
-  expectedReturnType :: Maybe Type,
-  insideLoop :: Bool
+  expectedReturnType :: Maybe Type
+} deriving (Show)
+
+data ClassDefS = ClassDefS {
+  attr :: M.Map Ident Type,
+  method :: M.Map Ident (Type, [Type])
 } deriving (Show)
 
 initTypeCheckerS :: TypeCheckerS
 initTypeCheckerS = TypeCheckerS {
   typeEnv = M.empty,
+  classEnv = M.empty,
+  funEnv = M.empty,
   scope = S.empty,
-  expectedReturnType = Nothing,
-  insideLoop = False
+  expectedReturnType = Nothing
 }
 
-getType :: TypeCheckerS -> Ident -> Maybe (Type, Bool)
-getType s ident = M.lookup ident (typeEnv s)
+setType :: TypeCheckerS -> Ident -> Type -> TypeCheckerS
+setType s ident t = TypeCheckerS {
+  typeEnv = M.insert ident t $ typeEnv s,
+  classEnv = classEnv s,
+  funEnv = funEnv s,
+  scope = scope s,
+  expectedReturnType = expectedReturnType s
+}
 
-setTypes :: TypeCheckerS -> [Ident] -> [(Type, Bool)] -> TypeCheckerS
+setTypes :: TypeCheckerS -> [Ident] -> [Type] -> TypeCheckerS
 setTypes s _ [] = s
 setTypes s [] _ = s
 setTypes s (i:is) (t:ts) = setTypes (setType s i t) is ts
 
-setType :: TypeCheckerS -> Ident -> (Type, Bool) -> TypeCheckerS
-setType s ident t = TypeCheckerS {
-      typeEnv = M.insert ident t (typeEnv s),
-      scope = S.insert ident (scope s),
-      expectedReturnType = expectedReturnType s,
-      insideLoop = insideLoop s
-    }
-
 setExpectedReturnType :: TypeCheckerS -> Maybe Type -> TypeCheckerS
 setExpectedReturnType s r = TypeCheckerS {
   typeEnv = typeEnv s,
+  classEnv = classEnv s,
+  funEnv = funEnv s,
   scope = scope s,
-  expectedReturnType = r,
-  insideLoop = insideLoop s
-}
-
-setInsideLoop :: TypeCheckerS -> Bool -> TypeCheckerS
-setInsideLoop s b = TypeCheckerS {
-  typeEnv = typeEnv s,
-  scope = scope s,
-  expectedReturnType = expectedReturnType s,
-  insideLoop = b
+  expectedReturnType = r
 }
 
 emptyScope :: TypeCheckerS -> TypeCheckerS
 emptyScope s = TypeCheckerS {
   typeEnv = typeEnv s,
+  classEnv = classEnv s,
+  funEnv = funEnv s,
   scope = S.empty,
-  expectedReturnType = expectedReturnType s,
-  insideLoop = insideLoop s
+  expectedReturnType = expectedReturnType s
 } 
 
 localTypeEnv :: TypeCheckerS -> TypeCheckerState () -> TypeCheckerState ()
@@ -81,8 +80,8 @@ data TypeCheckerException  =  InvalidTypeExpectedException BNFC'Position Type Ty
                             | InvalidMethodApplicationException BNFC'Position Ident Type
                             | InvalidNumberOfParametersException BNFC'Position
                             | InvalidReturnTypeException BNFC'Position Type Type
-                            | NoReturnException BNFC'Position Ident
                             | InvalidCastException BNFC'Position Type
+                            | NoReturnException BNFC'Position Ident
                             | UndefinedVariableException BNFC'Position Ident
                             | UndefinedObjectFieldException BNFC'Position Ident
                             | UndefinedFunctionException BNFC'Position Ident
@@ -99,6 +98,7 @@ data TypeCheckerException  =  InvalidTypeExpectedException BNFC'Position Type Ty
                             | MainReturnTypeException BNFC'Position Type
                             | ObjectFieldException BNFC'Position 
                             | ObjectFieldGetException BNFC'Position
+                            | SelfKeywordException BNFC'Position
                             | WildCardException BNFC'Position
 
 
@@ -176,6 +176,9 @@ instance Show TypeCheckerException where
 
   show (ObjectFieldGetException position) =
     "invalid OBJECT FIELD GET at " ++ pretty position ++ "; last expression should be object attribute"
+
+  show (SelfKeywordException position) =
+    "SELF can't be used as an object field at " ++ pretty position
 
   show (WildCardException position) =
     "Static Error: Unknown problem at " ++ pretty position

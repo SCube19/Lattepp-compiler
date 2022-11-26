@@ -23,8 +23,8 @@ exitError e = do
 getArgIdent :: Arg -> Ident
 getArgIdent (Arg _ t ident) = ident
 
-makeFalsyTuple :: a -> (a, Bool)
-makeFalsyTuple x = (x, False)
+getArgType :: Arg -> Type
+getArgType (Arg _ t _) = t
 
 throwException x = lift $ throwE $ "Static Error: " ++ show x
 
@@ -81,6 +81,7 @@ instance Raw Type where
     raw (ObjectType _ ident) = ObjectType Nothing ident
     raw (Array _ t) = Array Nothing (raw t)
     raw (Fun _ t ts) = Fun Nothing (raw t) (map raw ts)
+
 instance Raw ExtIdent where
     raw :: ExtIdent -> ExtIdent
     raw (Id _ ident) = Id Nothing ident
@@ -131,5 +132,6 @@ rawInt = Int Nothing
 rawStr = Str Nothing
 rawBool = Bool Nothing
 rawVoid = Void Nothing
-rawFun = Fun Nothing (Primitive Nothing (Void Nothing)) []
+rawFun :: Type -> Type
+rawFun r = Fun Nothing (raw r) []
 rawExtIdent = Id Nothing
