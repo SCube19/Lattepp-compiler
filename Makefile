@@ -5,9 +5,9 @@ compiler : Main.hs Utils.hs syntax typechecker optimizer
 
 syntax : Syntax/AbsLattepp.hs Syntax/LexLattepp.hs Syntax/ParLattepp.hs
 
-optimizer : Optimizer/Optimizer.hs Optimizer/Data.hs
+optimizer : Optimizer/Optimizer.hs Optimizer/Data.hs Optimizer/Utils.hs
 
-typechecker : Typechecker/TypeChecker.hs Typechecker/TypeCheckerData.hs
+typechecker : Typechecker/TypeChecker.hs Typechecker/Data.hs Typechecker/Utils.hs
 
 # compiler : Compiler/Compiler.hs Compiler/CompilerData.hs 
 

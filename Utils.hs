@@ -36,19 +36,33 @@ exitError e = do
 --                            else dup' xs (Set.insert x s)
 
 -- -------------PRETTY-------------------------------------------------------------------
+class Pretty a where
+    pretty :: a -> String
 
--- prettyPosition :: BNFC'Position -> String
--- prettyPosition (Just (row, col)) = "position " ++ show row ++ ":" ++ show col
--- prettyPosition _ = "???"
+instance Pretty BNFC'Position where
+    pretty (Just (row, col)) = "position " ++ show row ++ ":" ++ show col
+    pretty _ = "???"
 
--- prettyIdent :: Ident -> String
--- prettyIdent (Ident x) = x
+instance Pretty ExtIdent where
+    pretty (Id _ ident) = pretty ident
+    pretty (ArrId _ ident _) = pretty ident
+    pretty (AttrId _ e1 e2) = "obj attr"
 
--- prettyType :: Type -> String
--- prettyType (Int _) = "int"
--- prettyType (Str _) = "string"
--- prettyType (Bool _) = "bool"
--- prettyType (Void _) = "void"
+instance Pretty Ident where
+    pretty (Ident x) = x
+
+instance Pretty Type where
+    pretty (Primitive _ t) = pretty t
+    pretty (ObjectType _ ident) = pretty ident
+    pretty (Array _ t) = pretty t ++ "[]" 
+    pretty (Fun _ ret args) = "fun [" ++ intercalate "," (map pretty args) ++ " -> " ++ pretty ret ++ "]"
+
+instance Pretty PrimType where
+    pretty (Int _) = "int"
+    pretty (Str _) = "string"
+    pretty (Bool _) = "bool"
+    pretty (Void _) = "void"
+
 
 
 -- ------------------------------------TYPE MANIP--------------------------------------------
