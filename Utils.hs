@@ -71,10 +71,10 @@ class Raw a where
 
 
 instance Raw PrimType where
-    raw (Int _) = rawInt
-    raw (Str _) = rawStr
-    raw (Bool _) = rawBool
-    raw (Void _) = rawVoid
+    raw (Int _) = Int Nothing
+    raw (Str _) = Str Nothing
+    raw (Bool _) = Bool Nothing
+    raw (Void _) = Void Nothing
 
 instance Raw Type where
     raw (Primitive _ t) = Primitive Nothing (raw t)
@@ -128,10 +128,10 @@ instance Raw RelOp where
     raw (EQU a) = EQU Nothing
     raw (NE a) = NE Nothing
 
-rawInt = Int Nothing
-rawStr = Str Nothing
-rawBool = Bool Nothing
-rawVoid = Void Nothing
+rawInt =  Primitive Nothing $ Int Nothing
+rawStr =  Primitive Nothing $ Str Nothing
+rawBool =  Primitive Nothing $ Bool Nothing
+rawVoid = Primitive Nothing $ Void Nothing
 rawFun :: Type -> Type
 rawFun r = Fun Nothing (raw r) []
 rawExtIdent = Id Nothing

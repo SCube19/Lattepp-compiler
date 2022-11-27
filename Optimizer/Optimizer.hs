@@ -83,10 +83,10 @@ optimizeStmt (Ass pos ident expr) = do
     st <- get
     case newIdent of
       Id _ id -> case newExpr of
-        ELitInt _ val -> put $ putConst st id (rawInt, IntV val)
-        ELitTrue _ -> put $ putConst st id (rawBool, BoolV True)
-        ELitFalse _ -> put $ putConst st id (rawBool, BoolV False)
-        EString _ s -> put $ putConst st id (rawStr, StrV s)
+        ELitInt _ val -> put $ putConst st id (Int Nothing, IntV val)
+        ELitTrue _ -> put $ putConst st id (Bool Nothing, BoolV True)
+        ELitFalse _ -> put $ putConst st id (Bool Nothing, BoolV False)
+        EString _ s -> put $ putConst st id (Str Nothing, StrV s)
         _ -> return ()
       ArrId {} -> return ()
       AttrId {} -> return ()
@@ -156,10 +156,10 @@ optimizeItem t (Init pos ident expr) = do
     newExpr <- optimizeExpr expr
     st <- get
     case newExpr of
-        ELitInt _ val -> put $ putConst st ident (rawInt, IntV val)
-        ELitTrue _ -> put $ putConst st ident (rawBool, BoolV True)
-        ELitFalse _ -> put $ putConst st ident (rawBool, BoolV False)
-        EString _ s -> put $ putConst st ident (rawStr, StrV s)
+        ELitInt _ val -> put $ putConst st ident (Int Nothing, IntV val)
+        ELitTrue _ -> put $ putConst st ident (Bool Nothing, BoolV True)
+        ELitFalse _ -> put $ putConst st ident (Bool Nothing, BoolV False)
+        EString _ s -> put $ putConst st ident (Str Nothing, StrV s)
         _ -> return ()
     newSt <- get
     liftIO $ print $ "After declinit: " ++ show (consts newSt)

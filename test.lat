@@ -1,9 +1,8 @@
 int main() {
-	while(x) {
-		string y = "";
-		return;
-		int pppp = 1255553;
-	}
-	return 1;
-	int p = 123;
+	printInt(123);
+	printString("123");
+	int x = readInt();
+
+	testArr[3];
+	testInt[1];
 }

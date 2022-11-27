@@ -1,6 +1,6 @@
 module Typechecker.Data where
 
-import Syntax.AbsLattepp ( BNFC'Position, Ident, Arg, Type, Block, Expr )
+import Syntax.AbsLattepp ( BNFC'Position, Ident (Ident), Arg, Type, Block, Expr, Type' (Array, Primitive), PrimType' (Int) )
 import qualified Data.Map as M
 import qualified Data.Set as S
 import Control.Monad.Trans.Except (ExceptT, Except)
@@ -8,7 +8,23 @@ import Control.Monad.Trans.State (StateT, get, modify, put, gets)
 import Control.Monad.Trans.Reader (ReaderT)
 import Data.Char (toLower)
 import Data.Maybe (fromMaybe)
-import Utils (Pretty(pretty))
+import Utils (Pretty(pretty), rawVoid, rawInt, rawStr)
+
+predefinedFunctions = [
+  (Ident "printInt",    (rawVoid, [rawInt])),
+  (Ident "printString", (rawVoid, [rawStr])),
+  (Ident "error",       (rawVoid, [])),
+  (Ident "readInt",     (rawInt, [])),
+  (Ident "readString",  (rawStr, []))]
+
+testClass = [(Ident "Obj", (Nothing, ClassDefS{
+  attr = M.empty,
+  method = M.empty
+}))]
+
+testVar = [
+  (Ident "testArr", Array (Just(1, 2)) (Primitive Nothing (Int Nothing))),
+  (Ident "testInt", Primitive Nothing (Int Nothing))]
 
 type TypeCheckerState = StateT TypeCheckerS (ExceptT String IO)
 
@@ -27,9 +43,9 @@ data ClassDefS = ClassDefS {
 
 initTypeCheckerS :: TypeCheckerS
 initTypeCheckerS = TypeCheckerS {
-  typeEnv = M.empty,
-  classEnv = M.empty,
-  funEnv = M.empty,
+  typeEnv = M.fromList testVar,
+  classEnv = M.fromList testClass,
+  funEnv = M.fromList predefinedFunctions,
   scope = S.empty,
   expectedReturnType = Nothing
 }
@@ -64,27 +80,30 @@ emptyScope s = TypeCheckerS {
   funEnv = funEnv s,
   scope = S.empty,
   expectedReturnType = expectedReturnType s
-} 
+}
 
 localTypeEnv :: TypeCheckerS -> TypeCheckerState () -> TypeCheckerState ()
 localTypeEnv changedEnv action = do
-  backup <- get 
+  backup <- get
   put changedEnv
   action
   put backup
 
 -- --------------EXCEPTIONS---------------------------------------------------------------------------------
 data TypeCheckerException  =  InvalidTypeExpectedException BNFC'Position Type Type
+                            | InvalidExpectedArrayException BNFC'Position
+                            | InvalidExpectedObjectException BNFC'Position
                             | InvalidTypeException BNFC'Position Type
                             | InvalidFunctionApplicationException BNFC'Position Ident Type
                             | InvalidMethodApplicationException BNFC'Position Ident Type
                             | InvalidNumberOfParametersException BNFC'Position
                             | InvalidReturnTypeException BNFC'Position Type Type
-                            | InvalidCastException BNFC'Position Type
+                            | InvalidCastException BNFC'Position Type Type
                             | NoReturnException BNFC'Position Ident
                             | UndefinedVariableException BNFC'Position Ident
                             | UndefinedObjectFieldException BNFC'Position Ident
                             | UndefinedFunctionException BNFC'Position Ident
+                            | UndefinedTypeException BNFC'Position Type
                             | VariableRedeclarationException BNFC'Position Ident
                             | FunctionRedeclarationException BNFC'Position Ident
                             | ArgumentRedeclarationException BNFC'Position Ident
@@ -92,11 +111,11 @@ data TypeCheckerException  =  InvalidTypeExpectedException BNFC'Position Type Ty
                             | ClassFieldRedeclarationException BNFC'Position Ident
                             | VoidNotAllowedException BNFC'Position
                             | CircularInheritanceException BNFC'Position Type Type
-                            | CannotOverrideInheritedTypeException BNFC'Position Ident Type Type 
+                            | CannotOverrideInheritedTypeException BNFC'Position Ident Type Type
                             | NoMainException
                             | ArgumentInMainException BNFC'Position
                             | MainReturnTypeException BNFC'Position Type
-                            | ObjectFieldException BNFC'Position 
+                            | ObjectFieldException BNFC'Position
                             | ObjectFieldGetException BNFC'Position
                             | SelfKeywordException BNFC'Position
                             | WildCardException BNFC'Position
@@ -107,6 +126,12 @@ instance Show TypeCheckerException where
 
   show (InvalidTypeExpectedException position type1 type2) =
     "Invalid TYPE of " ++ pretty type1 ++ " at " ++ pretty position ++ "; EXPECTED " ++ pretty type2
+
+  show (InvalidExpectedArrayException position) =
+    "EXPECTED ARRAY TYPE at" ++ pretty position
+
+  show (InvalidExpectedObjectException position) =
+    "EXPECTED OBJECT TYPE at" ++ pretty position
 
   show (InvalidTypeException position type1) =
     "Invalid TYPE of " ++ pretty type1 ++ " at " ++ pretty position
@@ -122,21 +147,24 @@ instance Show TypeCheckerException where
 
   show (InvalidReturnTypeException position type1 type2) =
     "Invalid RETURN TYPE of " ++ pretty type1 ++ " at " ++ pretty position ++ "; EXPECTED " ++ pretty type2
-  
+
   show (NoReturnException position ident) =
     "NOT EVERY PATH RETURNS VALUE in " ++ pretty ident ++ " function definition; cause at " ++ pretty position
- 
-  show (InvalidCastException position t) = 
-    "invalid CAST to type " ++ pretty t ++ " at " ++ pretty position
-  
+
+  show (InvalidCastException position type1 type2) =
+    "invalid CAST FROM type " ++ pretty type1 ++ " TO type " ++ pretty type2 ++ " at " ++ pretty position
+
   show (UndefinedVariableException position ident) =
     "UNDEFINED VARIABLE '" ++ pretty ident ++ "' at " ++ pretty position
 
   show (UndefinedObjectFieldException position ident) =
     "UNDEFINED OBJECT FIELD '" ++ pretty ident ++ "' at " ++ pretty position
-  
+
   show (UndefinedFunctionException position ident) =
     "UNDEFINED FUNCTION USAGE '" ++ pretty ident ++ "' at " ++ pretty position
+
+  show (UndefinedTypeException position type1) =
+    "UNDEFINED CLASS TYPE '" ++ pretty type1 ++ "' at " ++ pretty position
 
   show (VariableRedeclarationException position ident) =
     "REDECLARATION of variable '" ++ pretty ident ++ "' at " ++ pretty position
@@ -150,29 +178,29 @@ instance Show TypeCheckerException where
   show (ClassRedeclarationException position ident) =
     "REDECLARATION of class '" ++ pretty ident ++ "' at " ++ pretty position
 
-  show (ClassFieldRedeclarationException position ident) = 
+  show (ClassFieldRedeclarationException position ident) =
     "REDECLARATION of class FIELD '" ++ pretty ident ++ "' at " ++ pretty position
 
   show (VoidNotAllowedException position) =
     "VOID type NOT ALLOWED outside function return type at " ++ pretty position
 
-  show (CircularInheritanceException position type1 type2) = 
+  show (CircularInheritanceException position type1 type2) =
     "CIRCULAR INHERITANCE of class " ++ pretty type1 ++ " and " ++ pretty type2 ++ " at " ++ pretty position
 
-  show (CannotOverrideInheritedTypeException position ident type1 type2) = 
-    "INHERITED FIELD " ++ pretty ident ++ " has INVALID TYPE of " ++ pretty type1 ++ "; expected " ++ pretty type2 
+  show (CannotOverrideInheritedTypeException position ident type1 type2) =
+    "INHERITED FIELD " ++ pretty ident ++ " has INVALID TYPE of " ++ pretty type1 ++ "; expected " ++ pretty type2
 
-  show (NoMainException) = 
+  show NoMainException =
     "NO MAIN FUNCTION FOUND"
 
   show (ArgumentInMainException position) =
-    "MAIN FUNCTION CAN'T RECEIVE ARGUMENTS at " ++ pretty position 
+    "MAIN FUNCTION CAN'T RECEIVE ARGUMENTS at " ++ pretty position
 
   show (MainReturnTypeException position type1) =
     "main function should RETURN INT but returns " ++ pretty type1 ++ " at " ++ pretty position
 
   show (ObjectFieldException position) =
-    "invalid OBJECT FIELD USAGE at " ++ pretty position 
+    "invalid OBJECT FIELD USAGE at " ++ pretty position
 
   show (ObjectFieldGetException position) =
     "invalid OBJECT FIELD GET at " ++ pretty position ++ "; last expression should be object attribute"
