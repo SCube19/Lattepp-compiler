@@ -1,6 +1,6 @@
 module Typechecker.Data where
 
-import Syntax.AbsLattepp ( BNFC'Position, Ident (Ident), Arg, Type, Block, Expr, Type' (Array, Primitive), PrimType' (Int) )
+import Syntax.AbsLattepp ( BNFC'Position, Ident (Ident), Arg, Type, Block, Expr, Type' (Array, Primitive, ObjectType), PrimType' (Int) )
 import qualified Data.Map as M
 import qualified Data.Set as S
 import Control.Monad.Trans.Except (ExceptT, Except)
@@ -8,7 +8,7 @@ import Control.Monad.Trans.State (StateT, get, modify, put, gets)
 import Control.Monad.Trans.Reader (ReaderT)
 import Data.Char (toLower)
 import Data.Maybe (fromMaybe)
-import Utils (Pretty(pretty), rawVoid, rawInt, rawStr)
+import Utils (Pretty(pretty), rawVoid, rawInt, rawStr, throwException)
 
 predefinedFunctions = [
   (Ident "printInt",    (rawVoid, [rawInt])),
@@ -17,14 +17,25 @@ predefinedFunctions = [
   (Ident "readInt",     (rawInt, [])),
   (Ident "readString",  (rawStr, []))]
 
-testClass = [(Ident "Obj", (Nothing, ClassDefS{
-  attr = M.empty,
-  method = M.empty
-}))]
+testClass :: [(Ident, (Maybe Ident, ClassDefS))]
+testClass = [
+  (Ident "Obj", (Just (Ident "Parent"), ClassDefS{
+    attrs = M.fromList [(Ident "testObj", rawInt)],
+    methods = M.empty
+  })),
+  (Ident "Parent", (Just (Ident "GParent"), ClassDefS{
+    attrs = M.fromList [(Ident "testParent", rawStr)],
+    methods = M.empty
+  })),
+  (Ident "GParent", (Nothing, ClassDefS{
+    attrs = M.fromList [(Ident "testGParent", ObjectType Nothing (Ident "Obj"))],
+    methods = M.empty
+  }))]
 
 testVar = [
   (Ident "testArr", Array (Just(1, 2)) (Primitive Nothing (Int Nothing))),
-  (Ident "testInt", Primitive Nothing (Int Nothing))]
+  (Ident "testInt", Primitive Nothing (Int Nothing)),
+  (Ident "obj", ObjectType Nothing (Ident "Obj"))]
 
 type TypeCheckerState = StateT TypeCheckerS (ExceptT String IO)
 
@@ -33,12 +44,13 @@ data TypeCheckerS = TypeCheckerS {
   classEnv :: M.Map Ident (Maybe Ident, ClassDefS), -- add setter/adder
   funEnv :: M.Map Ident (Type, [Type]), -- add setter/adder
   scope :: S.Set Ident,
-  expectedReturnType :: Maybe Type
+  expectedReturnType :: Maybe Type,
+  objectCheck :: Maybe Ident
 } deriving (Show)
 
 data ClassDefS = ClassDefS {
-  attr :: M.Map Ident Type,
-  method :: M.Map Ident (Type, [Type])
+  attrs :: M.Map Ident Type,
+  methods :: M.Map Ident (Type, [Type])
 } deriving (Show)
 
 initTypeCheckerS :: TypeCheckerS
@@ -47,7 +59,8 @@ initTypeCheckerS = TypeCheckerS {
   classEnv = M.fromList testClass,
   funEnv = M.fromList predefinedFunctions,
   scope = S.empty,
-  expectedReturnType = Nothing
+  expectedReturnType = Nothing,
+  objectCheck = Nothing
 }
 
 setType :: TypeCheckerS -> Ident -> Type -> TypeCheckerS
@@ -56,7 +69,8 @@ setType s ident t = TypeCheckerS {
   classEnv = classEnv s,
   funEnv = funEnv s,
   scope = scope s,
-  expectedReturnType = expectedReturnType s
+  expectedReturnType = expectedReturnType s,
+  objectCheck = Nothing
 }
 
 setTypes :: TypeCheckerS -> [Ident] -> [Type] -> TypeCheckerS
@@ -70,7 +84,8 @@ setExpectedReturnType s r = TypeCheckerS {
   classEnv = classEnv s,
   funEnv = funEnv s,
   scope = scope s,
-  expectedReturnType = r
+  expectedReturnType = r,
+  objectCheck = Nothing
 }
 
 emptyScope :: TypeCheckerS -> TypeCheckerS
@@ -79,8 +94,41 @@ emptyScope s = TypeCheckerS {
   classEnv = classEnv s,
   funEnv = funEnv s,
   scope = S.empty,
-  expectedReturnType = expectedReturnType s
+  expectedReturnType = expectedReturnType s,
+  objectCheck = Nothing
 }
+
+setObjectCheck :: TypeCheckerS -> Maybe Type -> TypeCheckerS
+setObjectCheck s (Just (ObjectType _ i)) = TypeCheckerS {
+  typeEnv = typeEnv s,
+  classEnv = classEnv s,
+  funEnv = funEnv s,
+  scope = scope s,
+  expectedReturnType = expectedReturnType s,
+  objectCheck = Just i
+}
+setObjectCheck s Nothing = TypeCheckerS {
+  typeEnv = typeEnv s,
+  classEnv = classEnv s,
+  funEnv = funEnv s,
+  scope = scope s,
+  expectedReturnType = expectedReturnType s,
+  objectCheck = Nothing
+}  
+setObjectCheck _ _ = undefined
+
+findMethod :: TypeCheckerS -> Ident -> Ident -> Maybe (Type, [Type])
+findMethod s t i = Nothing
+
+findAttr :: TypeCheckerS -> Ident -> Ident -> Maybe Type
+findAttr s c i = 
+  case M.lookup c (classEnv s) of
+    Nothing -> Nothing
+    Just (parent, def) -> case M.lookup i (attrs def) of
+      Nothing -> case parent of
+        Nothing -> Nothing
+        Just pid -> findAttr s pid i
+      Just t -> Just t  
 
 localTypeEnv :: TypeCheckerS -> TypeCheckerState () -> TypeCheckerState ()
 localTypeEnv changedEnv action = do
@@ -128,10 +176,10 @@ instance Show TypeCheckerException where
     "Invalid TYPE of " ++ pretty type1 ++ " at " ++ pretty position ++ "; EXPECTED " ++ pretty type2
 
   show (InvalidExpectedArrayException position) =
-    "EXPECTED ARRAY TYPE at" ++ pretty position
+    "EXPECTED ARRAY TYPE at " ++ pretty position
 
   show (InvalidExpectedObjectException position) =
-    "EXPECTED OBJECT TYPE at" ++ pretty position
+    "EXPECTED OBJECT TYPE at " ++ pretty position
 
   show (InvalidTypeException position type1) =
     "Invalid TYPE of " ++ pretty type1 ++ " at " ++ pretty position

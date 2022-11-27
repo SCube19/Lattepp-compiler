@@ -1,8 +1,4 @@
 int main() {
-	printInt(123);
-	printString("123");
-	int x = readInt();
-
-	testArr[3];
-	testInt[1];
+	Obj obj = new Obj;
+	obj.testParent.testParent;
 }
