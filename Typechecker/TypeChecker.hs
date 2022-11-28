@@ -37,18 +37,26 @@ typeCheckClassStmt (ClassEmpty pos) = return ()
 typeCheckClassStmt (ClassDecl pos t item) = return ()
 typeCheckClassStmt (ClassMethod pos ret ident args block) = return ()
 
-typeCheckExtIdent :: ExtIdent -> TypeCheckerState ()
-typeCheckExtIdent (Id pos ident) = return ()
-typeCheckExtIdent (ArrId pos ident expr) = return  ()
-typeCheckExtIdent (AttrId pos expr1 expr2) = return  ()
+typeCheckExtIdent :: ExtIdent -> TypeCheckerState Type
+typeCheckExtIdent (Id pos ident) = typeCheckExpr (EVar pos ident)
+
+typeCheckExtIdent (ArrId pos ident expr) = typeCheckExpr (EArr pos ident expr)
+
+typeCheckExtIdent (AttrId pos expr1 expr2) = do
+   st <- get 
+   localTypeEnv (setEnforceAttr st True) (typeCheckExpr (EObject pos expr1 expr2))
 
 typeCheckStmt :: Stmt -> TypeCheckerState ()
 typeCheckStmt (Empty pos) = return ()
+
 typeCheckStmt (BStmt pos block) = typeCheckBlock block
 
 typeCheckStmt (Decl pos t items) = mapM_ (`typeCheckItem` t) items
 
-typeCheckStmt (Ass pos ident expr) = return ()
+typeCheckStmt (Ass pos ident expr) = do
+  st <- get
+  iType <- typeCheckExtIdent ident
+  ensureType iType expr
 
 typeCheckStmt (Incr pos ident) = 
    typeCheckStmt (Ass pos ident (EAdd pos (ELitInt pos 1) (Plus pos) (case ident of
@@ -85,11 +93,32 @@ typeCheckStmt (VRet pos) = do
       else
          throwException $ InvalidReturnTypeException pos rawVoid t
 
-typeCheckStmt (Cond pos expr stmt) = return ()
-typeCheckStmt (CondElse pos expr istmt estmt) = return ()
-typeCheckStmt (While pos expr stmt) = return ()
-typeCheckStmt (For pos t ident collection stmt) = return ()
+typeCheckStmt (Cond pos expr stmt) = do
+  ensureType rawBool expr
+  st <- get
+  localTypeEnv (emptyScope st) (typeCheckStmt stmt)
 
+typeCheckStmt (CondElse pos expr istmt estmt) = do
+  ensureType rawBool expr
+  st <- get
+  localTypeEnv (emptyScope st) (typeCheckStmt istmt)
+  localTypeEnv (emptyScope st) (typeCheckStmt estmt)
+
+typeCheckStmt (While pos expr stmt) = do
+   ensureType rawBool expr
+   st <- get
+   localTypeEnv (emptyScope st) (typeCheckStmt stmt)
+
+typeCheckStmt (For pos t ident collection stmt) = do
+   colType <- typeCheckExtIdent collection
+   ensureArray pos colType
+   case colType of 
+      Array pos2 t2 -> do
+         ensureTypeMatch pos t t2
+         st <- get
+         localTypeEnv (setType (emptyScope st) ident t) (typeCheckStmt stmt)
+      _ -> throwException $ WildCardException pos
+   
 typeCheckStmt (SExp pos expr) = do
    val <- typeCheckExpr expr
    return ()
@@ -171,7 +200,7 @@ typeCheckExpr (EObject pos expr1 expr2) = do
                   ensureArgTypes pos args exprs
                   put $ setObjectCheck st (Just rType)
                   typeCheckExpr expr2
-         _ -> throwException $ WildCardException pos
+         _ -> throwException $ ObjectFieldException pos
 
 
 typeCheckExpr (EArr pos ident expr) = do
@@ -216,12 +245,15 @@ typeCheckExpr (EApp pos ident exprs) = do
             ensureArgTypes pos args exprs
             return rType
     Just t ->
-      case findMethod st t ident of
-            Nothing -> throwException $ UndefinedObjectFieldException pos ident
-            Just (rType, args) -> do
-               ensureArgTypes pos args exprs
-               put $ setObjectCheck st Nothing
-               return rType
+      if enforceAttr st then
+         throwException $ ObjectFieldGetException pos
+      else
+         case findMethod st t ident of
+               Nothing -> throwException $ UndefinedObjectFieldException pos ident
+               Just (rType, args) -> do
+                  ensureArgTypes pos args exprs
+                  put $ setObjectCheck st Nothing
+                  return rType
 
 typeCheckExpr (EString pos s) = return $ Primitive pos (Str pos)
 

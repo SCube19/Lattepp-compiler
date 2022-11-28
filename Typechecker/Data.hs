@@ -21,11 +21,11 @@ testClass :: [(Ident, (Maybe Ident, ClassDefS))]
 testClass = [
   (Ident "Obj", (Just (Ident "Parent"), ClassDefS{
     attrs = M.fromList [(Ident "testObj", rawInt)],
-    methods = M.empty
+    methods = M.fromList [(Ident "method", (rawInt, []))]
   })),
   (Ident "Parent", (Just (Ident "GParent"), ClassDefS{
     attrs = M.fromList [(Ident "testParent", rawStr)],
-    methods = M.empty
+    methods = M.fromList [(Ident "methodP", (rawStr, [rawInt]))]
   })),
   (Ident "GParent", (Nothing, ClassDefS{
     attrs = M.fromList [(Ident "testGParent", ObjectType Nothing (Ident "Obj"))],
@@ -45,7 +45,8 @@ data TypeCheckerS = TypeCheckerS {
   funEnv :: M.Map Ident (Type, [Type]), -- add setter/adder
   scope :: S.Set Ident,
   expectedReturnType :: Maybe Type,
-  objectCheck :: Maybe Ident
+  objectCheck :: Maybe Ident,
+  enforceAttr :: Bool
 } deriving (Show)
 
 data ClassDefS = ClassDefS {
@@ -60,7 +61,8 @@ initTypeCheckerS = TypeCheckerS {
   funEnv = M.fromList predefinedFunctions,
   scope = S.empty,
   expectedReturnType = Nothing,
-  objectCheck = Nothing
+  objectCheck = Nothing,
+  enforceAttr = False
 }
 
 setType :: TypeCheckerS -> Ident -> Type -> TypeCheckerS
@@ -70,7 +72,8 @@ setType s ident t = TypeCheckerS {
   funEnv = funEnv s,
   scope = S.insert ident (scope s),
   expectedReturnType = expectedReturnType s,
-  objectCheck = Nothing
+  objectCheck = Nothing,
+  enforceAttr = enforceAttr s
 }
 
 setTypes :: TypeCheckerS -> [Ident] -> [Type] -> TypeCheckerS
@@ -85,7 +88,8 @@ setExpectedReturnType s r = TypeCheckerS {
   funEnv = funEnv s,
   scope = scope s,
   expectedReturnType = r,
-  objectCheck = Nothing
+  objectCheck = Nothing,
+  enforceAttr = enforceAttr s
 }
 
 emptyScope :: TypeCheckerS -> TypeCheckerS
@@ -95,7 +99,8 @@ emptyScope s = TypeCheckerS {
   funEnv = funEnv s,
   scope = S.empty,
   expectedReturnType = expectedReturnType s,
-  objectCheck = Nothing
+  objectCheck = Nothing,
+  enforceAttr = enforceAttr s
 }
 
 setObjectCheck :: TypeCheckerS -> Maybe Type -> TypeCheckerS
@@ -105,7 +110,8 @@ setObjectCheck s (Just (ObjectType _ i)) = TypeCheckerS {
   funEnv = funEnv s,
   scope = scope s,
   expectedReturnType = expectedReturnType s,
-  objectCheck = Just i
+  objectCheck = Just i,
+  enforceAttr = enforceAttr s
 }
 setObjectCheck s Nothing = TypeCheckerS {
   typeEnv = typeEnv s,
@@ -113,12 +119,31 @@ setObjectCheck s Nothing = TypeCheckerS {
   funEnv = funEnv s,
   scope = scope s,
   expectedReturnType = expectedReturnType s,
-  objectCheck = Nothing
+  objectCheck = Nothing,
+  enforceAttr = enforceAttr s
 }  
 setObjectCheck _ _ = undefined
 
+setEnforceAttr :: TypeCheckerS -> Bool -> TypeCheckerS
+setEnforceAttr s b = TypeCheckerS {
+  typeEnv = typeEnv s,
+  classEnv = classEnv s,
+  funEnv = funEnv s,
+  scope = scope s,
+  expectedReturnType = expectedReturnType s,
+  objectCheck = objectCheck s,
+  enforceAttr = b
+}
+
 findMethod :: TypeCheckerS -> Ident -> Ident -> Maybe (Type, [Type])
-findMethod s t i = Nothing
+findMethod s c i = 
+  case M.lookup c (classEnv s) of
+    Nothing -> Nothing
+    Just (parent, def) -> case M.lookup i (methods def) of
+      Nothing -> case parent of
+        Nothing -> Nothing
+        Just pid -> findMethod s pid i
+      Just t -> Just t
 
 findAttr :: TypeCheckerS -> Ident -> Ident -> Maybe Type
 findAttr s c i = 
@@ -130,12 +155,13 @@ findAttr s c i =
         Just pid -> findAttr s pid i
       Just t -> Just t  
 
-localTypeEnv :: TypeCheckerS -> TypeCheckerState () -> TypeCheckerState ()
+localTypeEnv :: TypeCheckerS -> TypeCheckerState a -> TypeCheckerState a
 localTypeEnv changedEnv action = do
   backup <- get
   put changedEnv
-  action
+  result <- action
   put backup
+  return result
 
 -- --------------EXCEPTIONS---------------------------------------------------------------------------------
 data TypeCheckerException  =  InvalidTypeExpectedException BNFC'Position Type Type
