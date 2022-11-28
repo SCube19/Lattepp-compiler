@@ -91,7 +91,6 @@ optimizeStmt (Ass pos ident expr) = do
       ArrId {} -> return ()
       AttrId {} -> return ()
     newSt <- get
-    liftIO $ print $ "After assingment: " ++ show (consts newSt)
     return $ Ass pos ident newExpr
 
 optimizeStmt (Incr pos ident) = do
@@ -148,7 +147,6 @@ optimizeItem  t (NoInit pos ident) = do
                                                 Bool _ -> BoolV False
                                                 Void _ -> undefined)
         newSt <- get
-        liftIO $ print $ "After decl: " ++ show (consts newSt)
         return $ NoInit pos ident
       _ -> return $ NoInit pos ident
 
@@ -162,7 +160,6 @@ optimizeItem t (Init pos ident expr) = do
         EString _ s -> put $ putConst st ident (Str Nothing, StrV s)
         _ -> return ()
     newSt <- get
-    liftIO $ print $ "After declinit: " ++ show (consts newSt)
     return $ Init pos ident newExpr
 
 optimizeExpr :: Expr -> OptimizerState Expr

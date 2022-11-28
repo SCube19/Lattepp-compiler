@@ -68,7 +68,7 @@ setType s ident t = TypeCheckerS {
   typeEnv = M.insert ident t $ typeEnv s,
   classEnv = classEnv s,
   funEnv = funEnv s,
-  scope = scope s,
+  scope = S.insert ident (scope s),
   expectedReturnType = expectedReturnType s,
   objectCheck = Nothing
 }
@@ -166,6 +166,7 @@ data TypeCheckerException  =  InvalidTypeExpectedException BNFC'Position Type Ty
                             | ObjectFieldException BNFC'Position
                             | ObjectFieldGetException BNFC'Position
                             | SelfKeywordException BNFC'Position
+                            | NoInitException BNFC'Position Type
                             | WildCardException BNFC'Position
 
 
@@ -255,6 +256,9 @@ instance Show TypeCheckerException where
 
   show (SelfKeywordException position) =
     "SELF can't be used as an object field at " ++ pretty position
+
+  show (NoInitException position type1) = 
+    "type " ++ pretty type1 ++ " MUST BE INITIALIZED at " ++ pretty position
 
   show (WildCardException position) =
     "Static Error: Unknown problem at " ++ pretty position

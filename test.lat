@@ -1,4 +1,9 @@
 int main() {
-	Obj obj = new Obj;
-	obj.testParent.testParent;
+	int x = 5;
+	Obj t = new Obj;
+	int[] p = new int[2];
+
+	1 + x;
+	1 + t.testObj;
+	1 + p[0]; 
 }

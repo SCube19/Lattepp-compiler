@@ -44,13 +44,47 @@ typeCheckExtIdent (AttrId pos expr1 expr2) = return  ()
 
 typeCheckStmt :: Stmt -> TypeCheckerState ()
 typeCheckStmt (Empty pos) = return ()
-typeCheckStmt (BStmt pos block) = return ()
-typeCheckStmt (Decl pos t item) = return ()
+typeCheckStmt (BStmt pos block) = typeCheckBlock block
+
+typeCheckStmt (Decl pos t items) = mapM_ (`typeCheckItem` t) items
+
 typeCheckStmt (Ass pos ident expr) = return ()
-typeCheckStmt (Incr pos ident) = return ()
-typeCheckStmt (Decr pos ident) = return ()
-typeCheckStmt (Ret pos expr) = return ()
-typeCheckStmt (VRet pos) = return ()
+
+typeCheckStmt (Incr pos ident) = 
+   typeCheckStmt (Ass pos ident (EAdd pos (ELitInt pos 1) (Plus pos) (case ident of
+      var@(Id pos2 i) -> EVar pos2 i
+      arr@(ArrId pos2 i e) -> EArr pos2 i e
+      attr@(AttrId pos2 e1 e2) -> EObject pos2 e1 e2
+   )))
+
+typeCheckStmt (Decr pos ident) = 
+  typeCheckStmt (Ass pos ident (EAdd pos (ELitInt pos 1) (Minus pos) (case ident of
+      var@(Id pos2 i) -> EVar pos2 i
+      arr@(ArrId pos2 i e) -> EArr pos2 i e
+      attr@(AttrId pos2 e1 e2) -> EObject pos2 e1 e2
+   )))
+
+typeCheckStmt (Ret pos expr) = do
+  st <- get
+  case expectedReturnType st of
+    Nothing -> throwException $ WildCardException pos
+    Just t -> do
+      eType <- typeCheckExpr expr
+      if isSameType t eType then
+         return ()
+      else
+         throwException $ InvalidReturnTypeException pos eType t
+
+typeCheckStmt (VRet pos) = do
+  st <- get
+  case expectedReturnType st of
+    Nothing -> throwException $ WildCardException pos
+    Just t -> do
+      if isSameType t rawVoid then
+         return ()
+      else
+         throwException $ InvalidReturnTypeException pos rawVoid t
+
 typeCheckStmt (Cond pos expr stmt) = return ()
 typeCheckStmt (CondElse pos expr istmt estmt) = return ()
 typeCheckStmt (While pos expr stmt) = return ()
@@ -60,9 +94,28 @@ typeCheckStmt (SExp pos expr) = do
    val <- typeCheckExpr expr
    return ()
 
-typeCheckItem :: Item -> TypeCheckerState ()
-typeCheckItem (NoInit pos ident) = return ()
-typeCheckItem (Init pos ident expr) = return ()
+typeCheckItem :: Item -> Type -> TypeCheckerState ()
+typeCheckItem (NoInit pos ident) type1 =
+  if checkPrimitive type1 then do
+   dontAllowVoid type1
+   st <- get
+   case M.lookup ident (typeEnv st) of
+      Nothing -> put $ setType st ident type1
+      Just _ ->
+         if S.member ident (scope st)
+            then throwException $ VariableRedeclarationException pos ident
+            else put $ setType st ident type1
+   else
+      throwException $ NoInitException pos type1
+
+typeCheckItem (Init pos ident expr) type1 = do
+  st <- get
+  dontAllowVoid type1
+  case M.lookup ident (typeEnv st) of
+    Nothing -> put $ setType st ident type1
+    Just _ -> when (S.member ident (scope st)) $ throwException $ VariableRedeclarationException pos ident
+  eType <- typeCheckExpr expr
+  ensureTypeMatch pos type1 eType
 
 typeCheckExpr :: Expr -> TypeCheckerState Type
 typeCheckExpr (ECast pos ident expr) = do
@@ -89,24 +142,21 @@ typeCheckExpr (ENewObject pos type1) = do
 typeCheckExpr (ENewArr pos t expr) = do
    ensureType rawInt expr
    ensureTypeExists t
-   return t
+   return $ Array pos t
 
 typeCheckExpr (ENull pos) = return $ Primitive pos (Void pos)
 
 typeCheckExpr (EObject pos expr1 expr2) = do
    st <- get
-   liftIO $ print $ show (objectCheck st) ++ "OBJ"
    case objectCheck st of
      Nothing -> do
       type1 <- typeCheckExpr expr1
       ensureObject pos type1
-      liftIO $ print "checked obj"
       put $ setObjectCheck st (Just type1)
       typeCheckExpr expr2
      Just t -> do
       case expr1 of
          EVar _ ident -> do
-            liftIO $ print $ show ident ++ "IDENT"
             case findAttr st t ident of
                Nothing -> throwException $ UndefinedObjectFieldException pos ident
                Just t -> do
@@ -131,7 +181,9 @@ typeCheckExpr (EArr pos ident expr) = do
      Just t -> do
       ensureType rawInt expr
       ensureArray pos t
-      return t
+      case t of
+        Array pos2 t -> return t
+        _ -> throwException $ WildCardException pos
 
 typeCheckExpr (EVar pos ident) = do
   st <- get
@@ -170,8 +222,6 @@ typeCheckExpr (EApp pos ident exprs) = do
                ensureArgTypes pos args exprs
                put $ setObjectCheck st Nothing
                return rType
-
-
 
 typeCheckExpr (EString pos s) = return $ Primitive pos (Str pos)
 
@@ -236,12 +286,21 @@ ensureObject pos type1 = do
      ObjectType _ _ -> return ()
      _ -> throwException $ InvalidExpectedObjectException pos
 
+--had to be done this way for it to make some sense in code
+checkPrimitive :: Type -> Bool
+checkPrimitive (Primitive _ _) = True
+checkPrimitive _ = False
+
 ensureTypeMatch :: BNFC'Position -> Type -> Type -> TypeCheckerState ()
-ensureTypeMatch pos type1 type2 =
-  if raw type1 == raw type2
+ensureTypeMatch pos type1 type2 = do
+  liftIO $ print $ show type1 ++ " " ++ show type2
+  if isSameType type1 type2
     then return ()
     else throwException $ InvalidTypeExpectedException pos type2 type1
 
+isSameType :: Type -> Type -> Bool
+isSameType type1 type2 = raw type1 == raw type2
+   
 ensureType :: Type -> Expr -> TypeCheckerState ()
 ensureType t expr = do
   eType <- typeCheckExpr expr
@@ -255,7 +314,7 @@ allowTypes ts expr = do
 
 _allowTypes :: BNFC'Position -> [Type] -> Type -> TypeCheckerState ()
 _allowTypes pos ts type1 =
-   case type1 `elemIndex` ts of
+   case raw type1 `elemIndex` ts of
       Nothing -> throwException $ InvalidTypeException pos type1
       Just _ -> return ()
 

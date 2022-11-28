@@ -24,7 +24,7 @@ runProgram s = do
   optimized <- optimize tokens
   checkReturns optimized
   cleaned <- cleanDeadCode optimized
-  liftIO $ print $ "Cleaned code: " ++ show cleaned
+  liftIO $ print $ show tokens
   compile cleaned
 
 main :: IO ()
