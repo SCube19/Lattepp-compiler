@@ -28,7 +28,7 @@ separator    Stmt "" ;
 
 ClassEmpty.  ClassStmt ::= ";" ;
 
-ClassDecl.   ClassStmt ::= Type [Item] ";" ;
+ClassDecl.   ClassStmt ::= Type [Ident] ";" ;
 
 ClassMethod. ClassStmt ::= Type Ident "(" [Arg] ")" Block ;
 
@@ -43,6 +43,8 @@ NoInit.     Item ::= Ident ;
 Init.       Item ::= Ident "=" Expr ;
 
 separator nonempty Item "," ;
+
+separator nonempty Ident "," ;
 
 Id.        ExtIdent ::= Ident ;
 

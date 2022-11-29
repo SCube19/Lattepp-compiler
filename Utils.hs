@@ -60,16 +60,17 @@ instance Pretty Type where
 instance Pretty PrimType where
     pretty (Int _) = "int"
     pretty (Str _) = "string"
-    pretty (Bool _) = "bool"
+    pretty (Bool _) = "boolean"
     pretty (Void _) = "void"
-
 
 
 -- ------------------------------------TYPE MANIP--------------------------------------------
 class Raw a where
     raw :: a -> a
 
-
+instance Raw a => Raw [a] where
+    raw [] = []
+    raw (a:as) = raw a : raw as
 instance Raw PrimType where
     raw (Int _) = Int Nothing
     raw (Str _) = Str Nothing

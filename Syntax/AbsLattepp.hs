@@ -44,7 +44,7 @@ data ClassBlock' a = ClassBlock a [ClassStmt' a]
 type ClassStmt = ClassStmt' BNFC'Position
 data ClassStmt' a
     = ClassEmpty a
-    | ClassDecl a (Type' a) [Item' a]
+    | ClassDecl a (Type' a) [Ident]
     | ClassMethod a (Type' a) Ident [Arg' a] (Block' a)
   deriving (C.Eq, C.Ord, C.Show, C.Read, C.Functor, C.Foldable, C.Traversable)
 

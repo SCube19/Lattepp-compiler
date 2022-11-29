@@ -1,6 +1,6 @@
 module Typechecker.Data where
 
-import Syntax.AbsLattepp ( BNFC'Position, Ident (Ident), Arg, Type, Block, Expr, Type' (Array, Primitive, ObjectType), PrimType' (Int) )
+import Syntax.AbsLattepp ( BNFC'Position, Ident (Ident), Arg, Type, Block, Expr, Type' (Array, Primitive, ObjectType, Fun), PrimType' (Int), HasPosition (hasPosition), TopDef' (ClassDef) )
 import qualified Data.Map as M
 import qualified Data.Set as S
 import Control.Monad.Trans.Except (ExceptT, Except)
@@ -8,7 +8,11 @@ import Control.Monad.Trans.State (StateT, get, modify, put, gets)
 import Control.Monad.Trans.Reader (ReaderT)
 import Data.Char (toLower)
 import Data.Maybe (fromMaybe)
-import Utils (Pretty(pretty), rawVoid, rawInt, rawStr, throwException)
+import Utils (Pretty(pretty), rawVoid, rawInt, rawStr, throwException, Raw (raw), getArgType, firstDuplicateIndex, getArgIdent)
+import Control.Monad (when)
+import Control.Monad.IO.Class (MonadIO(liftIO))
+import Debug.Trace (trace)
+import Panic (throwGhcException)
 
 predefinedFunctions = [
   (Ident "printInt",    (rawVoid, [rawInt])),
@@ -17,36 +21,17 @@ predefinedFunctions = [
   (Ident "readInt",     (rawInt, [])),
   (Ident "readString",  (rawStr, []))]
 
-testClass :: [(Ident, (Maybe Ident, ClassDefS))]
-testClass = [
-  (Ident "Obj", (Just (Ident "Parent"), ClassDefS{
-    attrs = M.fromList [(Ident "testObj", rawInt)],
-    methods = M.fromList [(Ident "method", (rawInt, []))]
-  })),
-  (Ident "Parent", (Just (Ident "GParent"), ClassDefS{
-    attrs = M.fromList [(Ident "testParent", rawStr)],
-    methods = M.fromList [(Ident "methodP", (rawStr, [rawInt]))]
-  })),
-  (Ident "GParent", (Nothing, ClassDefS{
-    attrs = M.fromList [(Ident "testGParent", ObjectType Nothing (Ident "Obj"))],
-    methods = M.empty
-  }))]
-
-testVar = [
-  (Ident "testArr", Array (Just(1, 2)) (Primitive Nothing (Int Nothing))),
-  (Ident "testInt", Primitive Nothing (Int Nothing)),
-  (Ident "obj", ObjectType Nothing (Ident "Obj"))]
-
 type TypeCheckerState = StateT TypeCheckerS (ExceptT String IO)
 
 data TypeCheckerS = TypeCheckerS {
   typeEnv :: M.Map Ident Type,
-  classEnv :: M.Map Ident (Maybe Ident, ClassDefS), -- add setter/adder
-  funEnv :: M.Map Ident (Type, [Type]), -- add setter/adder
+  classEnv :: M.Map Ident ((Maybe Ident, BNFC'Position, [Ident]), ClassDefS), 
+  funEnv :: M.Map Ident (Type, [Type]), 
   scope :: S.Set Ident,
   expectedReturnType :: Maybe Type,
   objectCheck :: Maybe Ident,
-  enforceAttr :: Bool
+  enforceAttr :: Bool,
+  self :: Maybe Ident
 } deriving (Show)
 
 data ClassDefS = ClassDefS {
@@ -54,15 +39,22 @@ data ClassDefS = ClassDefS {
   methods :: M.Map Ident (Type, [Type])
 } deriving (Show)
 
+initClassDefS :: Ident -> ClassDefS
+initClassDefS ident = ClassDefS {
+  attrs = M.fromList [(Ident "self", ObjectType Nothing ident)],
+  methods = M.empty
+}
+
 initTypeCheckerS :: TypeCheckerS
 initTypeCheckerS = TypeCheckerS {
-  typeEnv = M.fromList testVar,
-  classEnv = M.fromList testClass,
+  typeEnv = M.empty,
+  classEnv = M.empty,
   funEnv = M.fromList predefinedFunctions,
   scope = S.empty,
   expectedReturnType = Nothing,
   objectCheck = Nothing,
-  enforceAttr = False
+  enforceAttr = False,
+  self = Nothing
 }
 
 setType :: TypeCheckerS -> Ident -> Type -> TypeCheckerS
@@ -73,7 +65,8 @@ setType s ident t = TypeCheckerS {
   scope = S.insert ident (scope s),
   expectedReturnType = expectedReturnType s,
   objectCheck = Nothing,
-  enforceAttr = enforceAttr s
+  enforceAttr = enforceAttr s,
+  self = self s
 }
 
 setTypes :: TypeCheckerS -> [Ident] -> [Type] -> TypeCheckerS
@@ -89,7 +82,8 @@ setExpectedReturnType s r = TypeCheckerS {
   scope = scope s,
   expectedReturnType = r,
   objectCheck = Nothing,
-  enforceAttr = enforceAttr s
+  enforceAttr = enforceAttr s,
+  self = self s
 }
 
 emptyScope :: TypeCheckerS -> TypeCheckerS
@@ -100,7 +94,8 @@ emptyScope s = TypeCheckerS {
   scope = S.empty,
   expectedReturnType = expectedReturnType s,
   objectCheck = Nothing,
-  enforceAttr = enforceAttr s
+  enforceAttr = enforceAttr s,
+  self = self s
 }
 
 setObjectCheck :: TypeCheckerS -> Maybe Type -> TypeCheckerS
@@ -111,7 +106,8 @@ setObjectCheck s (Just (ObjectType _ i)) = TypeCheckerS {
   scope = scope s,
   expectedReturnType = expectedReturnType s,
   objectCheck = Just i,
-  enforceAttr = enforceAttr s
+  enforceAttr = enforceAttr s,
+  self = self s
 }
 setObjectCheck s Nothing = TypeCheckerS {
   typeEnv = typeEnv s,
@@ -120,8 +116,9 @@ setObjectCheck s Nothing = TypeCheckerS {
   scope = scope s,
   expectedReturnType = expectedReturnType s,
   objectCheck = Nothing,
-  enforceAttr = enforceAttr s
-}  
+  enforceAttr = enforceAttr s,
+  self = self s
+}
 setObjectCheck _ _ = undefined
 
 setEnforceAttr :: TypeCheckerS -> Bool -> TypeCheckerS
@@ -132,28 +129,198 @@ setEnforceAttr s b = TypeCheckerS {
   scope = scope s,
   expectedReturnType = expectedReturnType s,
   objectCheck = objectCheck s,
-  enforceAttr = b
+  enforceAttr = b,
+  self = self s
 }
 
+setSelf :: TypeCheckerS -> Maybe Ident -> TypeCheckerS
+setSelf s c = TypeCheckerS {
+  typeEnv = typeEnv s,
+  classEnv = classEnv s,
+  funEnv = funEnv s,
+  scope = scope s,
+  expectedReturnType = expectedReturnType s,
+  objectCheck = objectCheck s,
+  enforceAttr = enforceAttr s,
+  self = c
+}
+
+addFun :: TypeCheckerS -> Type -> Ident -> [Type] -> TypeCheckerS
+addFun s ret ident args = TypeCheckerS {
+  typeEnv = typeEnv s,
+  classEnv = classEnv s,
+  funEnv = M.insert ident (ret, args) (funEnv s),
+  scope = scope s,
+  expectedReturnType = expectedReturnType s,
+  objectCheck = objectCheck s,
+  enforceAttr = enforceAttr s,
+  self = self s
+}
+
+addChild :: TypeCheckerS -> Maybe Ident -> Ident -> TypeCheckerS
+addChild s c child = case c of
+  Nothing -> s
+  Just class1 -> 
+    case M.lookup class1 (classEnv s) of 
+      Nothing -> s
+      Just ((ext, pos, childs), def) -> TypeCheckerS {
+        typeEnv = typeEnv s,
+        classEnv = M.insert class1 ((ext, pos, child : childs), def) (classEnv s),
+        funEnv = funEnv s,
+        scope = scope s,
+        expectedReturnType = expectedReturnType s,
+        objectCheck = objectCheck s,
+        enforceAttr = enforceAttr s,
+        self = self s
+      }
+
+addClass :: TypeCheckerS -> Ident -> Maybe Ident -> BNFC'Position -> TypeCheckerS
+addClass s c ext pos =
+  let ((_, p, childs), def) = fromMaybe ((Nothing, pos, []), initClassDefS c) (M.lookup c (classEnv s)) in
+  addChild (TypeCheckerS {
+    typeEnv = typeEnv s,
+    classEnv = M.insert c ((ext, p, childs), def) (classEnv s),
+    funEnv = funEnv s,
+    scope = scope s,
+    expectedReturnType = expectedReturnType s,
+    objectCheck = objectCheck s,
+    enforceAttr = enforceAttr s,
+    self = self s
+  }) ext c
+
+addAttrs :: Ident -> Type -> [Ident] -> TypeCheckerState ()
+addAttrs _ _ [] = return ()
+addAttrs class1 type1 (i:is) = do
+  addAttr class1 type1 i
+  addAttrs class1 type1 is
+
+_addAttr :: TypeCheckerS -> Ident -> Type -> Ident -> TypeCheckerS
+_addAttr s c type1 ident =
+  let (ext, def) = fromMaybe undefined (M.lookup c (classEnv s)) in
+  TypeCheckerS {
+  typeEnv = typeEnv s,
+  classEnv = M.insert c (ext, ClassDefS {
+    attrs = M.insert ident type1 (attrs def),
+    methods = methods def
+  }) (classEnv s),
+  funEnv = funEnv s,
+  scope = scope s,
+  expectedReturnType = expectedReturnType s,
+  objectCheck = objectCheck s,
+  enforceAttr = enforceAttr s,
+  self = self s
+}
+
+dontAllowSelf :: BNFC'Position -> Ident -> TypeCheckerState ()
+dontAllowSelf pos i =
+  when (i == Ident "self") $
+  throwException $ SelfKeywordException pos
+
+addAttr :: Ident -> Type -> Ident -> TypeCheckerState ()
+addAttr c type1 ident = do
+  dontAllowSelf (hasPosition type1) ident
+  _dontAllowVoid type1
+  st <- get
+  case M.lookup c (classEnv st) of
+    Nothing -> throwException $ UndefinedTypeException (hasPosition type1) (ObjectType Nothing c)
+    Just (_, def) -> do
+      case M.lookup ident (attrs def) of
+        Nothing -> do
+          case findAttr st c ident of
+            Nothing -> case findMethod st c ident of
+              Nothing -> put $ _addAttr st c type1 ident
+              Just (ret, args) -> throwException $ CannotOverrideInheritedTypeException (hasPosition type1) ident type1 (Fun Nothing ret args)
+            Just t ->
+              when (raw t /= raw type1)
+              (throwException $ CannotOverrideInheritedTypeException (hasPosition type1) ident type1 t)
+        Just f -> throwException $ ClassFieldRedeclarationException (hasPosition type1) ident
+
+
+
+_addMethod :: TypeCheckerS -> Ident -> Type -> Ident -> [Arg] -> TypeCheckerS
+_addMethod s c ret ident args =
+  let types = map getArgType args in
+  let (ext, def) = fromMaybe undefined (M.lookup c (classEnv s)) in
+  TypeCheckerS {
+  typeEnv = typeEnv s,
+  classEnv = M.insert c (ext, ClassDefS {
+    attrs = attrs def,
+    methods = M.insert ident (ret, types) (methods def)
+  }) (classEnv s),
+  funEnv = funEnv s,
+  scope = scope s,
+  expectedReturnType = expectedReturnType s,
+  objectCheck = objectCheck s,
+  enforceAttr = enforceAttr s,
+  self = self s
+}
+
+--circular dep
+_dontAllowVoid :: Type -> TypeCheckerState ()
+_dontAllowVoid t = do
+   when (raw t == rawVoid) $ throwException $ VoidNotAllowedException (hasPosition t)
+
+_ensureUniqueIdents :: [Arg] -> TypeCheckerState ()
+_ensureUniqueIdents args =
+  case firstDuplicateIndex $ map getArgIdent args of
+    Just index -> throwException $ ArgumentRedeclarationException (hasPosition $ args !! index) (getArgIdent $ args !! index)
+    Nothing -> return ()
+
+addMethod :: Ident -> Type -> Ident -> [Arg] -> TypeCheckerState ()
+addMethod c ret ident args = do
+  _ensureUniqueIdents args
+  st <- get
+  case M.lookup c (classEnv st) of
+    Nothing -> throwException $ UndefinedTypeException (hasPosition ret) (ObjectType Nothing c)
+    Just (_, def) -> do
+      case M.lookup ident (methods def) of
+        Nothing -> do
+          let types = map getArgType args
+          case findMethod st c ident of
+            Nothing -> case findAttr st c ident of
+                Nothing -> do
+                  mapM_ _dontAllowVoid types
+                  put $ _addMethod st c ret ident args
+                Just t -> throwException $ CannotOverrideInheritedTypeException (hasPosition ret) ident (Fun Nothing ret types) t
+            Just (pRet, pTypes) -> do
+              when (raw pRet /= raw ret || raw pTypes /= raw types) $
+                throwException $ CannotOverrideInheritedTypeException (hasPosition ret) ident (Fun Nothing ret types) (Fun Nothing pRet pTypes)
+        Just f -> throwException $ ClassFieldRedeclarationException (hasPosition ret) ident
+
+
 findMethod :: TypeCheckerS -> Ident -> Ident -> Maybe (Type, [Type])
-findMethod s c i = 
+findMethod s c i =
   case M.lookup c (classEnv s) of
     Nothing -> Nothing
     Just (parent, def) -> case M.lookup i (methods def) of
       Nothing -> case parent of
-        Nothing -> Nothing
-        Just pid -> findMethod s pid i
+        (Nothing, _, _) -> Nothing
+        (Just pid, _, _) -> findMethod s pid i
       Just t -> Just t
 
 findAttr :: TypeCheckerS -> Ident -> Ident -> Maybe Type
-findAttr s c i = 
+findAttr s c i =
   case M.lookup c (classEnv s) of
     Nothing -> Nothing
     Just (parent, def) -> case M.lookup i (attrs def) of
       Nothing -> case parent of
-        Nothing -> Nothing
-        Just pid -> findAttr s pid i
-      Just t -> Just t  
+        (Nothing, _, _) -> Nothing
+        (Just pid, _, _) -> findAttr s pid i
+      Just t -> Just t
+
+findFunInState :: TypeCheckerS -> Ident -> Maybe (Type, [Type])
+findFunInState s ident = case M.lookup ident (funEnv s) of
+  Nothing -> case self s of
+    Nothing -> Nothing
+    Just c -> findMethod s c ident
+  Just t -> Just t
+
+findVarInState :: TypeCheckerS -> Ident -> Maybe Type
+findVarInState s ident = case M.lookup ident (typeEnv s) of
+  Nothing -> case self s of
+    Nothing -> Nothing
+    Just c -> findAttr s c ident
+  Just t -> Just t
 
 localTypeEnv :: TypeCheckerS -> TypeCheckerState a -> TypeCheckerState a
 localTypeEnv changedEnv action = do
@@ -184,7 +351,7 @@ data TypeCheckerException  =  InvalidTypeExpectedException BNFC'Position Type Ty
                             | ClassRedeclarationException BNFC'Position Ident
                             | ClassFieldRedeclarationException BNFC'Position Ident
                             | VoidNotAllowedException BNFC'Position
-                            | CircularInheritanceException BNFC'Position Type Type
+                            | CircularInheritanceException BNFC'Position Ident Ident
                             | CannotOverrideInheritedTypeException BNFC'Position Ident Type Type
                             | NoMainException
                             | ArgumentInMainException BNFC'Position
@@ -259,8 +426,8 @@ instance Show TypeCheckerException where
   show (VoidNotAllowedException position) =
     "VOID type NOT ALLOWED outside function return type at " ++ pretty position
 
-  show (CircularInheritanceException position type1 type2) =
-    "CIRCULAR INHERITANCE of class " ++ pretty type1 ++ " and " ++ pretty type2 ++ " at " ++ pretty position
+  show (CircularInheritanceException position ident1 ident2) =
+    "CIRCULAR INHERITANCE of class " ++ pretty ident1 ++ " and " ++ pretty ident2 ++ " at " ++ pretty position
 
   show (CannotOverrideInheritedTypeException position ident type1 type2) =
     "INHERITED FIELD " ++ pretty ident ++ " has INVALID TYPE of " ++ pretty type1 ++ "; expected " ++ pretty type2
@@ -283,7 +450,7 @@ instance Show TypeCheckerException where
   show (SelfKeywordException position) =
     "SELF can't be used as an object field at " ++ pretty position
 
-  show (NoInitException position type1) = 
+  show (NoInitException position type1) =
     "type " ++ pretty type1 ++ " MUST BE INITIALIZED at " ++ pretty position
 
   show (WildCardException position) =

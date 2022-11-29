@@ -8,7 +8,7 @@
 
 -- | The abstract syntax of language Lattepp.
 
-module AbsLattepp where
+module Syntax.AbsLattepp where
 
 import Prelude (Integer, String)
 import qualified Prelude as C
@@ -19,7 +19,7 @@ import qualified Prelude as C
 import qualified Data.String
 
 type Program = Program' BNFC'Position
-data Program' a = Prog a [TopDef' a]
+data Program' a = Program a [TopDef' a]
   deriving (C.Eq, C.Ord, C.Show, C.Read, C.Functor, C.Foldable, C.Traversable)
 
 type TopDef = TopDef' BNFC'Position
@@ -30,15 +30,15 @@ data TopDef' a
   deriving (C.Eq, C.Ord, C.Show, C.Read, C.Functor, C.Foldable, C.Traversable)
 
 type Arg = Arg' BNFC'Position
-data Arg' a = Ar a (Type' a) Ident
+data Arg' a = Arg a (Type' a) Ident
   deriving (C.Eq, C.Ord, C.Show, C.Read, C.Functor, C.Foldable, C.Traversable)
 
 type Block = Block' BNFC'Position
-data Block' a = Bloc a [Stmt' a]
+data Block' a = Block a [Stmt' a]
   deriving (C.Eq, C.Ord, C.Show, C.Read, C.Functor, C.Foldable, C.Traversable)
 
 type ClassBlock = ClassBlock' BNFC'Position
-data ClassBlock' a = ClassBloc a [ClassStmt' a]
+data ClassBlock' a = ClassBlock a [ClassStmt' a]
   deriving (C.Eq, C.Ord, C.Show, C.Read, C.Functor, C.Foldable, C.Traversable)
 
 type ClassStmt = ClassStmt' BNFC'Position
@@ -144,7 +144,7 @@ class HasPosition a where
 
 instance HasPosition Program where
   hasPosition = \case
-    Prog p _ -> p
+    Program p _ -> p
 
 instance HasPosition TopDef where
   hasPosition = \case
@@ -154,15 +154,15 @@ instance HasPosition TopDef where
 
 instance HasPosition Arg where
   hasPosition = \case
-    Ar p _ _ -> p
+    Arg p _ _ -> p
 
 instance HasPosition Block where
   hasPosition = \case
-    Bloc p _ -> p
+    Block p _ -> p
 
 instance HasPosition ClassBlock where
   hasPosition = \case
-    ClassBloc p _ -> p
+    ClassBlock p _ -> p
 
 instance HasPosition ClassStmt where
   hasPosition = \case

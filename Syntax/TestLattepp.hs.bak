@@ -2,7 +2,7 @@
 
 -- | Program to test parser.
 
-module Syntax.Main where
+module Main where
 
 import Prelude
   ( ($), (.)
@@ -18,11 +18,11 @@ import System.Environment ( getArgs )
 import System.Exit        ( exitFailure )
 import Control.Monad      ( when )
 
-import Syntax.AbsLattepp   ()
-import Syntax.LexLattepp   ( Token, mkPosToken )
-import Syntax.ParLattepp   ( pProgram, myLexer ) 
-import Syntax.PrintLattepp ( Print, printTree ) 
-import Syntax.SkelLattepp  ()
+import Syntax.AbsLattepp   as AbsLattepp ()
+import Syntax.LexLattepp   as LexLattepp ( Token, mkPosToken )
+import Syntax.ParLattepp   as ParLattepp ( pProgram, myLexer )
+import Syntax.PrintLattepp as PrintLattepp ( Print, printTree )
+import Syntax.SkelLattepp  as SkelLattepp ()
 
 type Err        = Either String
 type ParseFun a = [Token] -> Err a

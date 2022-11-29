@@ -83,7 +83,7 @@ String   : L_quoted { (uncurry AbsLattepp.BNFC'Position (tokenLineCol $1), ((\(P
 
 Program :: { (AbsLattepp.BNFC'Position, AbsLattepp.Program) }
 Program
-  : ListTopDef { (fst $1, AbsLattepp.Prog (fst $1) (snd $1)) }
+  : ListTopDef { (fst $1, AbsLattepp.Program (fst $1) (snd $1)) }
 
 TopDef :: { (AbsLattepp.BNFC'Position, AbsLattepp.TopDef) }
 TopDef
@@ -98,7 +98,7 @@ ListTopDef
 
 Arg :: { (AbsLattepp.BNFC'Position, AbsLattepp.Arg) }
 Arg
-  : Type Ident { (fst $1, AbsLattepp.Ar (fst $1) (snd $1) (snd $2)) }
+  : Type Ident { (fst $1, AbsLattepp.Arg (fst $1) (snd $1) (snd $2)) }
 
 ListArg :: { (AbsLattepp.BNFC'Position, [AbsLattepp.Arg]) }
 ListArg
@@ -108,11 +108,11 @@ ListArg
 
 Block :: { (AbsLattepp.BNFC'Position, AbsLattepp.Block) }
 Block
-  : '{' ListStmt '}' { (uncurry AbsLattepp.BNFC'Position (tokenLineCol $1), AbsLattepp.Bloc (uncurry AbsLattepp.BNFC'Position (tokenLineCol $1)) (snd $2)) }
+  : '{' ListStmt '}' { (uncurry AbsLattepp.BNFC'Position (tokenLineCol $1), AbsLattepp.Block (uncurry AbsLattepp.BNFC'Position (tokenLineCol $1)) (snd $2)) }
 
 ClassBlock :: { (AbsLattepp.BNFC'Position, AbsLattepp.ClassBlock) }
 ClassBlock
-  : '{' ListClassStmt '}' { (uncurry AbsLattepp.BNFC'Position (tokenLineCol $1), AbsLattepp.ClassBloc (uncurry AbsLattepp.BNFC'Position (tokenLineCol $1)) (snd $2)) }
+  : '{' ListClassStmt '}' { (uncurry AbsLattepp.BNFC'Position (tokenLineCol $1), AbsLattepp.ClassBlock (uncurry AbsLattepp.BNFC'Position (tokenLineCol $1)) (snd $2)) }
 
 ListClassStmt :: { (AbsLattepp.BNFC'Position, [AbsLattepp.ClassStmt]) }
 ListClassStmt

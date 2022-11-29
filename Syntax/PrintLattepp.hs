@@ -9,7 +9,7 @@
 
 -- | Pretty-printer for PrintLattepp.
 
-module Syntax.PrintLattepp where
+module Sytnax.PrintLattepp where
 
 import Prelude
   ( ($), (.)
@@ -183,7 +183,7 @@ instance Print [AbsLattepp.Stmt' a] where
 instance Print (AbsLattepp.ClassStmt' a) where
   prt i = \case
     AbsLattepp.ClassEmpty _ -> prPrec i 0 (concatD [doc (showString ";")])
-    AbsLattepp.ClassDecl _ type_ items -> prPrec i 0 (concatD [prt 0 type_, prt 0 items, doc (showString ";")])
+    AbsLattepp.ClassDecl _ type_ ids -> prPrec i 0 (concatD [prt 0 type_, prt 0 ids, doc (showString ";")])
     AbsLattepp.ClassMethod _ type_ id_ args block -> prPrec i 0 (concatD [prt 0 type_, prt 0 id_, doc (showString "("), prt 0 args, doc (showString ")"), prt 0 block])
 
 instance Print (AbsLattepp.Stmt' a) where
@@ -208,6 +208,11 @@ instance Print (AbsLattepp.Item' a) where
     AbsLattepp.Init _ id_ expr -> prPrec i 0 (concatD [prt 0 id_, doc (showString "="), prt 0 expr])
 
 instance Print [AbsLattepp.Item' a] where
+  prt _ [] = concatD []
+  prt _ [x] = concatD [prt 0 x]
+  prt _ (x:xs) = concatD [prt 0 x, doc (showString ","), prt 0 xs]
+
+instance Print [AbsLattepp.Ident] where
   prt _ [] = concatD []
   prt _ [x] = concatD [prt 0 x]
   prt _ (x:xs) = concatD [prt 0 x, doc (showString ","), prt 0 xs]

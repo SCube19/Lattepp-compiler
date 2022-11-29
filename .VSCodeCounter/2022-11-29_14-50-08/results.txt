@@ -1,0 +1,55 @@
+Date : 2022-11-29 14:50:08
+Directory : /home/gumis/programs/latte
+Total : 22 files,  4247 codes, 368 comments, 1114 blanks, all 5729 lines
+
+Languages
++----------+------------+------------+------------+------------+------------+
+| language | files      | code       | comment    | blank      | total      |
++----------+------------+------------+------------+------------+------------+
+| Haskell  |         16 |      3,723 |        306 |        907 |      4,936 |
+| Happy    |          1 |        234 |          6 |         48 |        288 |
+| Alex     |          1 |        177 |         42 |         50 |        269 |
+| LBNF     |          1 |         80 |          6 |         86 |        172 |
+| Makefile |          2 |         31 |          8 |         23 |         62 |
+| Markdown |          1 |          2 |          0 |          0 |          2 |
++----------+------------+------------+------------+------------+------------+
+
+Directories
++-------------------------------------------------------+------------+------------+------------+------------+------------+
+| path                                                  | files      | code       | comment    | blank      | total      |
++-------------------------------------------------------+------------+------------+------------+------------+------------+
+| .                                                     |         22 |      4,247 |        368 |      1,114 |      5,729 |
+| Compiler                                              |          1 |          5 |          0 |          2 |          7 |
+| Optimizer                                             |          3 |        371 |          5 |         94 |        470 |
+| Syntax                                                |         11 |      2,773 |        308 |        800 |      3,881 |
+| Typechecker                                           |          3 |        938 |         47 |        185 |      1,170 |
++-------------------------------------------------------+------------+------------+------------+------------+------------+
+
+Files
++-------------------------------------------------------+----------+------------+------------+------------+------------+
+| filename                                              | language | code       | comment    | blank      | total      |
++-------------------------------------------------------+----------+------------+------------+------------+------------+
+| /home/gumis/programs/latte/Compiler/Compiler.hs       | Haskell  |          5 |          0 |          2 |          7 |
+| /home/gumis/programs/latte/Main.hs                    | Haskell  |         37 |          0 |          5 |         42 |
+| /home/gumis/programs/latte/Makefile                   | Makefile |         12 |          1 |          6 |         19 |
+| /home/gumis/programs/latte/Optimizer/Data.hs          | Haskell  |         42 |          0 |         12 |         54 |
+| /home/gumis/programs/latte/Optimizer/Optimizer.hs     | Haskell  |        300 |          5 |         63 |        368 |
+| /home/gumis/programs/latte/Optimizer/Utils.hs         | Haskell  |         29 |          0 |         19 |         48 |
+| /home/gumis/programs/latte/README.md                  | Markdown |          2 |          0 |          0 |          2 |
+| /home/gumis/programs/latte/Syntax/AbsLattepp.hs       | Haskell  |        205 |          9 |         43 |        257 |
+| /home/gumis/programs/latte/Syntax/ErrM.hs             | Haskell  |         46 |         20 |         26 |         92 |
+| /home/gumis/programs/latte/Syntax/Lattepp.cf          | LBNF     |         80 |          6 |         86 |        172 |
+| /home/gumis/programs/latte/Syntax/LexLattepp.hs       | Haskell  |        353 |         55 |        165 |        573 |
+| /home/gumis/programs/latte/Syntax/LexLattepp.x        | Alex     |        177 |         42 |         50 |        269 |
+| /home/gumis/programs/latte/Syntax/Makefile            | Makefile |         19 |          7 |         17 |         43 |
+| /home/gumis/programs/latte/Syntax/ParLattepp.hs       | Haskell  |      1,266 |        144 |        275 |      1,685 |
+| /home/gumis/programs/latte/Syntax/ParLattepp.y        | Happy    |        234 |          6 |         48 |        288 |
+| /home/gumis/programs/latte/Syntax/PrintLattepp.hs     | Haskell  |        224 |         14 |         54 |        292 |
+| /home/gumis/programs/latte/Syntax/SkelLattepp.hs      | Haskell  |        107 |          3 |         23 |        133 |
+| /home/gumis/programs/latte/Syntax/TestLattepp.hs      | Haskell  |         62 |          2 |         13 |         77 |
+| /home/gumis/programs/latte/Typechecker/Data.hs        | Haskell  |        388 |          2 |         68 |        458 |
+| /home/gumis/programs/latte/Typechecker/TypeChecker.hs | Haskell  |        424 |         43 |         89 |        556 |
+| /home/gumis/programs/latte/Typechecker/Utils.hs       | Haskell  |        126 |          2 |         28 |        156 |
+| /home/gumis/programs/latte/Utils.hs                   | Haskell  |        109 |          7 |         22 |        138 |
+| Total                                                 |          |      4,247 |        368 |      1,114 |      5,729 |
++-------------------------------------------------------+----------+------------+------------+------------+------------+

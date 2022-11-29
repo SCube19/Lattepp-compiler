@@ -7,7 +7,7 @@ import System.Directory.Internal.Prelude (exitFailure, getArgs)
 import System.Exit (exitSuccess)
 import System.IO ()
 import Optimizer.Optimizer (optimize, cleanDeadCode)
-import Typechecker.TypeChecker ( typeCheck, checkReturns )
+import Typechecker.TypeChecker ( typeCheck, checkReturn )
 import Compiler.Compiler (compile)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 
@@ -22,9 +22,8 @@ runProgram s = do
   tokens <- tokenize s
   typeCheck tokens
   optimized <- optimize tokens
-  checkReturns optimized
   cleaned <- cleanDeadCode optimized
-  liftIO $ print $ show tokens
+  checkReturn cleaned
   compile cleaned
 
 main :: IO ()

@@ -9,7 +9,7 @@
 
 -- | Pretty-printer for PrintLattepp.
 
-module PrintLattepp where
+module Syntax.PrintLattepp where
 
 import Prelude
   ( ($), (.)
@@ -20,7 +20,7 @@ import Prelude
   , all, elem, foldr, id, map, null, replicate, shows, span
   )
 import Data.Char ( Char, isSpace )
-import qualified AbsLattepp
+import qualified Syntax.AbsLattepp as AbsLattepp
 
 -- | The top-level printing method.
 
@@ -142,7 +142,7 @@ instance Print AbsLattepp.Ident where
   prt _ (AbsLattepp.Ident i) = doc $ showString i
 instance Print (AbsLattepp.Program' a) where
   prt i = \case
-    AbsLattepp.Prog _ topdefs -> prPrec i 0 (concatD [prt 0 topdefs])
+    AbsLattepp.Program _ topdefs -> prPrec i 0 (concatD [prt 0 topdefs])
 
 instance Print (AbsLattepp.TopDef' a) where
   prt i = \case
@@ -157,7 +157,7 @@ instance Print [AbsLattepp.TopDef' a] where
 
 instance Print (AbsLattepp.Arg' a) where
   prt i = \case
-    AbsLattepp.Ar _ type_ id_ -> prPrec i 0 (concatD [prt 0 type_, prt 0 id_])
+    AbsLattepp.Arg _ type_ id_ -> prPrec i 0 (concatD [prt 0 type_, prt 0 id_])
 
 instance Print [AbsLattepp.Arg' a] where
   prt _ [] = concatD []
@@ -166,11 +166,11 @@ instance Print [AbsLattepp.Arg' a] where
 
 instance Print (AbsLattepp.Block' a) where
   prt i = \case
-    AbsLattepp.Bloc _ stmts -> prPrec i 0 (concatD [doc (showString "{"), prt 0 stmts, doc (showString "}")])
+    AbsLattepp.Block _ stmts -> prPrec i 0 (concatD [doc (showString "{"), prt 0 stmts, doc (showString "}")])
 
 instance Print (AbsLattepp.ClassBlock' a) where
   prt i = \case
-    AbsLattepp.ClassBloc _ classstmts -> prPrec i 0 (concatD [doc (showString "{"), prt 0 classstmts, doc (showString "}")])
+    AbsLattepp.ClassBlock _ classstmts -> prPrec i 0 (concatD [doc (showString "{"), prt 0 classstmts, doc (showString "}")])
 
 instance Print [AbsLattepp.ClassStmt' a] where
   prt _ [] = concatD []

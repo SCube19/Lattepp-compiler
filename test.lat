@@ -1,9 +1,37 @@
-int main() {
-	string x;
-	int[] arr = new int[2];
 
-	for(int x : arr) {
-		x = 3;
+boolean x() {
+	return true;
+}
+
+
+class A {
+	int f() {
+		if(true) {
+			return 1;
+		}
+	}
+	void x() {
+
+	}
+
+	boolean z(boolean t) {
+		if(t) {
+			return t;
+		}
+		else{
+					}
+	}
+}
+
+int main() {
+	if(x()) {
+		return 1;
+	}
+	else {
+		int x;
+		if (true) {
+			return 1;
+		}
 		
 	}
 }

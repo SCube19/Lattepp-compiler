@@ -44,7 +44,7 @@ transClassBlock x = case x of
 transClassStmt :: Show a => AbsLattepp.ClassStmt' a -> Result
 transClassStmt x = case x of
   AbsLattepp.ClassEmpty _ -> failure x
-  AbsLattepp.ClassDecl _ type_ items -> failure x
+  AbsLattepp.ClassDecl _ type_ idents -> failure x
   AbsLattepp.ClassMethod _ type_ ident args block -> failure x
 
 transStmt :: Show a => AbsLattepp.Stmt' a -> Result

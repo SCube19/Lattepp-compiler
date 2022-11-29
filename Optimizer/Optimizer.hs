@@ -43,8 +43,7 @@ optimizeClassStmt :: ClassStmt -> OptimizerState ClassStmt
 optimizeClassStmt (ClassEmpty pos) = return $ ClassEmpty pos
 
 optimizeClassStmt (ClassDecl pos t items) = do
-    newItems <- mapM (optimizeItem t) items
-    return $ ClassDecl pos t newItems
+    return $ ClassDecl pos t items
 
 optimizeClassStmt (ClassMethod pos ret ident args block) = do
     newBlock <- optimizeBlock block

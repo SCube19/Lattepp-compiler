@@ -4,10 +4,10 @@
 
 {-# OPTIONS_GHC -fno-warn-unused-matches #-}
 
-module SkelLattepp where
+module Syntax.SkelLattepp where
 
 import Prelude (($), Either(..), String, (++), Show, show)
-import qualified AbsLattepp
+import qualified Syntax.AbsLattepp as AbsLattepp
 
 type Err = Either String
 type Result = Err String
@@ -21,7 +21,7 @@ transIdent x = case x of
 
 transProgram :: Show a => AbsLattepp.Program' a -> Result
 transProgram x = case x of
-  AbsLattepp.Prog _ topdefs -> failure x
+  AbsLattepp.Program _ topdefs -> failure x
 
 transTopDef :: Show a => AbsLattepp.TopDef' a -> Result
 transTopDef x = case x of
@@ -31,15 +31,15 @@ transTopDef x = case x of
 
 transArg :: Show a => AbsLattepp.Arg' a -> Result
 transArg x = case x of
-  AbsLattepp.Ar _ type_ ident -> failure x
+  AbsLattepp.Arg _ type_ ident -> failure x
 
 transBlock :: Show a => AbsLattepp.Block' a -> Result
 transBlock x = case x of
-  AbsLattepp.Bloc _ stmts -> failure x
+  AbsLattepp.Block _ stmts -> failure x
 
 transClassBlock :: Show a => AbsLattepp.ClassBlock' a -> Result
 transClassBlock x = case x of
-  AbsLattepp.ClassBloc _ classstmts -> failure x
+  AbsLattepp.ClassBlock _ classstmts -> failure x
 
 transClassStmt :: Show a => AbsLattepp.ClassStmt' a -> Result
 transClassStmt x = case x of

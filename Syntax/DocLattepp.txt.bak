@@ -70,7 +70,7 @@ All other symbols are terminals.
   | //[Stmt]// | -> | **eps**
   |  |  **|**  | //Stmt// //[Stmt]//
   | //ClassStmt// | -> | ``;``
-  |  |  **|**  | //Type// //[Ident]// ``;``
+  |  |  **|**  | //Type// //[Item]// ``;``
   |  |  **|**  | //Type// //Ident// ``(`` //[Arg]// ``)`` //Block//
   | //Stmt// | -> | ``;``
   |  |  **|**  | //Block//
@@ -89,8 +89,6 @@ All other symbols are terminals.
   |  |  **|**  | //Ident// ``=`` //Expr//
   | //[Item]// | -> | //Item//
   |  |  **|**  | //Item// ``,`` //[Item]//
-  | //[Ident]// | -> | //Ident//
-  |  |  **|**  | //Ident// ``,`` //[Ident]//
   | //ExtIdent// | -> | //Ident//
   |  |  **|**  | //Ident// ``[`` //Expr// ``]``
   |  |  **|**  | //Expr6// ``.`` //Expr6//

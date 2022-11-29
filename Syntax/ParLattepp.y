@@ -127,7 +127,7 @@ ListStmt
 ClassStmt :: { (AbsLattepp.BNFC'Position, AbsLattepp.ClassStmt) }
 ClassStmt
   : ';' { (uncurry AbsLattepp.BNFC'Position (tokenLineCol $1), AbsLattepp.ClassEmpty (uncurry AbsLattepp.BNFC'Position (tokenLineCol $1))) }
-  | Type ListItem ';' { (fst $1, AbsLattepp.ClassDecl (fst $1) (snd $1) (snd $2)) }
+  | Type ListIdent ';' { (fst $1, AbsLattepp.ClassDecl (fst $1) (snd $1) (snd $2)) }
   | Type Ident '(' ListArg ')' Block { (fst $1, AbsLattepp.ClassMethod (fst $1) (snd $1) (snd $2) (snd $4) (snd $6)) }
 
 Stmt :: { (AbsLattepp.BNFC'Position, AbsLattepp.Stmt) }
@@ -155,6 +155,11 @@ ListItem :: { (AbsLattepp.BNFC'Position, [AbsLattepp.Item]) }
 ListItem
   : Item { (fst $1, (:[]) (snd $1)) }
   | Item ',' ListItem { (fst $1, (:) (snd $1) (snd $3)) }
+
+ListIdent :: { (AbsLattepp.BNFC'Position, [AbsLattepp.Ident]) }
+ListIdent
+  : Ident { (fst $1, (:[]) (snd $1)) }
+  | Ident ',' ListIdent { (fst $1, (:) (snd $1) (snd $3)) }
 
 ExtIdent :: { (AbsLattepp.BNFC'Position, AbsLattepp.ExtIdent) }
 ExtIdent

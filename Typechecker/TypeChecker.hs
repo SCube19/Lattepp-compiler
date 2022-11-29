@@ -13,29 +13,62 @@ import Typechecker.Data
 import Utils
 import qualified Data.Set as S
 import qualified Data.Map as M
+import Typechecker.Utils (gatherHeaders, defineInheritance, checkMain, dontAllowVoid, gatherFields, functionState, classState, topoSort)
+import Cmm (CmmNode(res))
 
 typeCheck :: Program -> ExceptT String IO ()
-typeCheck (Program _ defs) =
-   evalStateT (mapM_ typeCheckTopDef defs) initTypeCheckerS
+typeCheck p =
+   evalStateT (beginCheck p) initTypeCheckerS
+
+beginCheck :: Program -> TypeCheckerState ()
+beginCheck (Program _ defs) = do
+   mapM_ gatherHeaders defs
+   st1 <- get
+   checkMain st1
+   mapM_ defineInheritance defs
+   st2 <- get
+   newDefs <- topoSort defs
+   mapM_ gatherFields newDefs
+   mapM_ typeCheckTopDef defs
+
+----------------------------------------------------
 
 typeCheckTopDef :: TopDef -> TypeCheckerState ()
 typeCheckTopDef (FnDef pos ret ident args block) = do
-   typeCheckBlock block
+   st <- get
+   localTypeEnv (functionState st args ret) (typeCheckBlock block)
 
-typeCheckTopDef (ClassDef pos ident block) = return ()
-typeCheckTopDef (ExtClassDef pos ident ext block) = return ()
+typeCheckTopDef (ClassDef pos ident block) = do
+   st <- get
+   localTypeEnv (classState st (Just ident)) (typeCheckClassBlock block)
 
+typeCheckTopDef (ExtClassDef pos ident ext block) = do
+   st <- get
+   localTypeEnv (classState st (Just ident)) (typeCheckClassBlock block)
+
+-----------------------------------------------------------
 typeCheckBlock :: Block -> TypeCheckerState ()
 typeCheckBlock (Block pos stmts) = do
-   mapM_ typeCheckStmt stmts
+  st <- get
+  localTypeEnv (emptyScope st) (mapM_ typeCheckStmt stmts)
+
+-----------------------------------------------------------------
 
 typeCheckClassBlock :: ClassBlock -> TypeCheckerState ()
-typeCheckClassBlock (ClassBlock pos stmts) = return ()
+typeCheckClassBlock (ClassBlock pos stmts) = do
+   mapM_ typeCheckClassStmt stmts
 
+--------------------------------------------------------------------
 typeCheckClassStmt :: ClassStmt -> TypeCheckerState ()
 typeCheckClassStmt (ClassEmpty pos) = return ()
-typeCheckClassStmt (ClassDecl pos t item) = return ()
-typeCheckClassStmt (ClassMethod pos ret ident args block) = return ()
+
+typeCheckClassStmt (ClassDecl pos t items) = return ()
+
+typeCheckClassStmt (ClassMethod pos ret ident args block) = do
+   st <- get
+   localTypeEnv (functionState st args ret) (typeCheckBlock block)
+
+------------------------------------------------------------------------------
 
 typeCheckExtIdent :: ExtIdent -> TypeCheckerState Type
 typeCheckExtIdent (Id pos ident) = typeCheckExpr (EVar pos ident)
@@ -43,8 +76,10 @@ typeCheckExtIdent (Id pos ident) = typeCheckExpr (EVar pos ident)
 typeCheckExtIdent (ArrId pos ident expr) = typeCheckExpr (EArr pos ident expr)
 
 typeCheckExtIdent (AttrId pos expr1 expr2) = do
-   st <- get 
+   st <- get
    localTypeEnv (setEnforceAttr st True) (typeCheckExpr (EObject pos expr1 expr2))
+
+-----------------------------------------------------------------------------------
 
 typeCheckStmt :: Stmt -> TypeCheckerState ()
 typeCheckStmt (Empty pos) = return ()
@@ -58,14 +93,14 @@ typeCheckStmt (Ass pos ident expr) = do
   iType <- typeCheckExtIdent ident
   ensureType iType expr
 
-typeCheckStmt (Incr pos ident) = 
+typeCheckStmt (Incr pos ident) =
    typeCheckStmt (Ass pos ident (EAdd pos (ELitInt pos 1) (Plus pos) (case ident of
       var@(Id pos2 i) -> EVar pos2 i
       arr@(ArrId pos2 i e) -> EArr pos2 i e
       attr@(AttrId pos2 e1 e2) -> EObject pos2 e1 e2
    )))
 
-typeCheckStmt (Decr pos ident) = 
+typeCheckStmt (Decr pos ident) =
   typeCheckStmt (Ass pos ident (EAdd pos (ELitInt pos 1) (Minus pos) (case ident of
       var@(Id pos2 i) -> EVar pos2 i
       arr@(ArrId pos2 i e) -> EArr pos2 i e
@@ -112,16 +147,18 @@ typeCheckStmt (While pos expr stmt) = do
 typeCheckStmt (For pos t ident collection stmt) = do
    colType <- typeCheckExtIdent collection
    ensureArray pos colType
-   case colType of 
+   case colType of
       Array pos2 t2 -> do
          ensureTypeMatch pos t t2
          st <- get
          localTypeEnv (setType (emptyScope st) ident t) (typeCheckStmt stmt)
       _ -> throwException $ WildCardException pos
-   
+
 typeCheckStmt (SExp pos expr) = do
    val <- typeCheckExpr expr
    return ()
+
+-------------------------------------------------------------------------------------------
 
 typeCheckItem :: Item -> Type -> TypeCheckerState ()
 typeCheckItem (NoInit pos ident) type1 =
@@ -142,9 +179,14 @@ typeCheckItem (Init pos ident expr) type1 = do
   dontAllowVoid type1
   case M.lookup ident (typeEnv st) of
     Nothing -> put $ setType st ident type1
-    Just _ -> when (S.member ident (scope st)) $ throwException $ VariableRedeclarationException pos ident
+    Just _ -> 
+      if S.member ident (scope st)
+            then throwException $ VariableRedeclarationException pos ident
+            else put $ setType st ident type1
   eType <- typeCheckExpr expr
   ensureTypeMatch pos type1 eType
+
+-----------------------------------------------------------------------------
 
 typeCheckExpr :: Expr -> TypeCheckerState Type
 typeCheckExpr (ECast pos ident expr) = do
@@ -205,7 +247,7 @@ typeCheckExpr (EObject pos expr1 expr2) = do
 
 typeCheckExpr (EArr pos ident expr) = do
    st <- get
-   case M.lookup ident (typeEnv st) of
+   case findVarInState st ident of
      Nothing -> throwException $ UndefinedVariableException pos ident
      Just t -> do
       ensureType rawInt expr
@@ -218,7 +260,7 @@ typeCheckExpr (EVar pos ident) = do
   st <- get
   case objectCheck st of
     Nothing ->
-      case M.lookup ident (typeEnv st) of
+      case findVarInState st ident of
          Nothing -> throwException $ UndefinedVariableException pos ident
          Just t -> return t
     Just t ->
@@ -239,7 +281,7 @@ typeCheckExpr (EApp pos ident exprs) = do
   st <- get
   case objectCheck st of
     Nothing ->
-      case M.lookup ident (funEnv st) of
+      case findFunInState st ident of
          Nothing -> throwException $ UndefinedFunctionException pos ident
          Just (rType, args) -> do
             ensureArgTypes pos args exprs
@@ -251,8 +293,8 @@ typeCheckExpr (EApp pos ident exprs) = do
          case findMethod st t ident of
                Nothing -> throwException $ UndefinedObjectFieldException pos ident
                Just (rType, args) -> do
-                  ensureArgTypes pos args exprs
                   put $ setObjectCheck st Nothing
+                  ensureArgTypes pos args exprs
                   return rType
 
 typeCheckExpr (EString pos s) = return $ Primitive pos (Str pos)
@@ -304,7 +346,7 @@ typeCheckExpr (EOr pos expr1 expr2) = do
 
 
 ---------------------------------------------------------------------------
-
+--This section can't really be its own module due to circular dependency
 -- --------------------ENSURE------------------------------------------------------
 ensureArray :: BNFC'Position -> Type -> TypeCheckerState ()
 ensureArray pos type1 = do
@@ -325,14 +367,13 @@ checkPrimitive _ = False
 
 ensureTypeMatch :: BNFC'Position -> Type -> Type -> TypeCheckerState ()
 ensureTypeMatch pos type1 type2 = do
-  liftIO $ print $ show type1 ++ " " ++ show type2
   if isSameType type1 type2
     then return ()
     else throwException $ InvalidTypeExpectedException pos type2 type1
 
 isSameType :: Type -> Type -> Bool
 isSameType type1 type2 = raw type1 == raw type2
-   
+
 ensureType :: Type -> Expr -> TypeCheckerState ()
 ensureType t expr = do
   eType <- typeCheckExpr expr
@@ -355,12 +396,6 @@ ensureArgTypes pos ts exprs =
   if length ts /= length exprs
     then throwException $ InvalidNumberOfParametersException pos
     else zipWithM_ ensureType ts exprs
-
-ensureUniqueIdents :: [Arg] -> TypeCheckerState ()
-ensureUniqueIdents args =
-  case firstDuplicateIndex $ map getArgIdent args of
-    Just index -> throwException $ ArgumentRedeclarationException (hasPosition $ args !! index) (getArgIdent $ args !! index)
-    Nothing -> return ()
 
 ensureTypeExists :: Type -> TypeCheckerState ()
 ensureTypeExists type1 =
@@ -394,20 +429,6 @@ dontAllowType t expr = do
   dontAllowTypeMatch (hasPosition eType) t eType
   return t
 
-dontAllowVoidArgs :: [Type] -> TypeCheckerState ()
-dontAllowVoidArgs = mapM_ dontAllowVoid
-
-dontAllowVoid :: Type -> TypeCheckerState ()
-dontAllowVoid t =
-   when (raw t == rawVoid) $ throwException $ VoidNotAllowedException (hasPosition t)
-
--- dontAllowFun t ident =
---   when (raw t == rawFun) $ throwException $ FunctionNotDefinedException (hasPosition t) ident
-------------------FUNCTION STATE-----------------------------
-functionState :: TypeCheckerS -> [Arg] -> Type -> TypeCheckerS
-functionState s args rType = setTypes (emptyScope $ setExpectedReturnType s $ Just rType)
-                              (map getArgIdent args) (map getArgType args)
-
 -------------------------------------------------------------
 findParent :: BNFC'Position -> Type -> Type -> TypeCheckerState ()
 findParent pos p c = _findParent pos p c c
@@ -422,8 +443,8 @@ _findParent pos0 pToFind@(ObjectType pos1 class1) c@(ObjectType pos2 class2) ori
          Nothing -> throwException $ UndefinedTypeException pos2 c
          Just (parent, _) ->
             case parent of
-            Nothing -> throwException $ InvalidCastException pos0 original pToFind
-            Just pid ->
+            (Nothing, _, _) -> throwException $ InvalidCastException pos0 original pToFind
+            (Just pid, _, _) ->
                if pid == class1 then
                   return ()
                else
@@ -431,85 +452,105 @@ _findParent pos0 pToFind@(ObjectType pos1 class1) c@(ObjectType pos2 class2) ori
 _findParent pos _ _ _ = throwException $ WildCardException pos
 ---------------------------------------------------------------------------
 
-checkReturns :: Program -> ExceptT String IO ()
-checkReturns (Program _ stmts) = return ()
 
+checkReturn :: Program -> ExceptT String IO ()
+checkReturn (Program _ defs) = 
+   evalStateT (mapM_ checkReturnTopDef defs) initTypeCheckerS
 
+checkReturnTopDef :: TopDef -> TypeCheckerState ()
+checkReturnTopDef (FnDef pos ret ident args block) = 
+   if raw ret == rawVoid then
+      return ()
+   else do
+      res <- checkReturnBlock block
+      if res then
+         return ()
+      else
+         throwException $ NoReturnException pos ident
 
+checkReturnTopDef (ClassDef pos ident block) = do
+   res <- checkReturnClassBlock block
+   if res then
+      return ()
+   else
+      throwException $ NoReturnException pos ident
 
+checkReturnTopDef (ExtClassDef pos ident ext block) = do
+   res <- checkReturnClassBlock block
+   if res then
+      return ()
+   else
+      throwException $ NoReturnException pos ident
 
+checkReturnBlock :: Block -> TypeCheckerState Bool
+checkReturnBlock (Block pos stmts) = do
+   res <- mapM checkReturnStmt stmts
+   return $ or res
+   
+checkReturnClassBlock :: ClassBlock -> TypeCheckerState Bool
+checkReturnClassBlock (ClassBlock pos stmts) = do
+   res <- mapM checkReturnClassStmt stmts
+   return $ and res
 
+checkReturnClassStmt :: ClassStmt -> TypeCheckerState Bool
+checkReturnClassStmt (ClassEmpty pos) = return True
 
+checkReturnClassStmt (ClassDecl pos t item) = return True
+checkReturnClassStmt (ClassMethod pos ret ident args block) = do
+   if raw ret == rawVoid then
+      return True
+   else checkReturnBlock block
 
+-- checkReturnExtIdent :: ExtIdent -> TypeCheckerState ()
+-- checkReturnExtIdent (Id pos ident) = return ()
+-- checkReturnExtIdent (ArrId pos ident expr) = return  ()
+-- checkReturnExtIdent (AttrId pos expr1 expr2) = return  ()
 
+checkReturnStmt :: Stmt -> TypeCheckerState Bool
+checkReturnStmt (Empty pos) = return False
+checkReturnStmt (BStmt pos block) = checkReturnBlock block
+checkReturnStmt (Decl pos t item) = return False
+checkReturnStmt (Ass pos ident expr) = return False
+checkReturnStmt (Incr pos ident) = return False
+checkReturnStmt (Decr pos ident) = return False 
+checkReturnStmt (Ret pos expr) = return True
+checkReturnStmt (VRet pos) = return True
+checkReturnStmt (Cond pos expr stmt) = return False
+checkReturnStmt (CondElse pos expr istmt estmt) = do
+   ir <- checkReturnStmt istmt
+   er <- checkReturnStmt estmt
+   return $ ir && er
 
+checkReturnStmt (While pos expr stmt) = 
+   case expr of
+      (ELitTrue _) -> return True
+      _ -> checkReturnStmt stmt
 
+checkReturnStmt (For pos t ident collection stmt) = checkReturnStmt stmt
+checkReturnStmt (SExp pos expr) = return False
 
+-- checkReturnItem :: Item -> TypeCheckerState ()
+-- checkReturnItem (NoInit pos ident) = return ()
+-- checkReturnItem (Init pos ident expr) = return ()
 
-
-
-
-
-
-
-
-----------------FOR FUTURE USE ------------------------------
-
---  :: Program -> ExceptT String IO ()
--- typeCheck (Program _ defs) = 
---    evalStateT (mapM_ typeCheckTopDef defs) initTypeCheckerS
-
--- TopDef :: TopDef -> TypeCheckerState ()
--- TopDef (FnDef pos ret ident args block) = return  ()
--- TopDef (ClassDef pos ident block) = return ()
--- TopDef (ExtClassDef pos ident ext block) = return ()
--- Block :: Block -> TypeCheckerState ()
--- Block (Block pos stmts) = return ()
--- ClassBlock :: ClassBlock -> TypeCheckerState ()
--- ClassBlock (ClassBlock pos stmts) = return ()
--- ClassStmt :: ClassStmt -> TypeCheckerState ()
--- ClassStmt (ClassEmpty pos) = return ()
--- ClassStmt (ClassDecl pos t item) = return ()
--- ClassStmt (ClassMethod pos ret ident args block) = return  ()
--- ExtIdent :: ExtIdent -> TypeCheckerState ()
--- ExtIdent (Id pos ident) = return ()
--- ExtIdent (ArrId pos ident expr) = return  ()
--- ExtIdent (AttrId pos expr1 expr2) = return  ()
--- Stmt :: Stmt -> TypeCheckerState ()
--- Stmt (Empty pos) = return ()
--- Stmt (BStmt pos block) = return ()
--- Stmt (Decl pos t item) = return ()
--- Stmt (Ass pos ident expr) = return ()
--- Stmt (Incr pos ident) = return ()
--- Stmt (Decr pos ident) = return ()
--- Stmt (Ret pos expr) = return ()
--- Stmt (VRet pos) = return ()
--- Stmt (Cond pos expr stmt) = return ()
--- Stmt (CondElse pos expr istmt estmt) = return ()
--- Stmt (While pos expr stmt) = return ()
--- Stmt (For pos t ident collection stmt) = return ()
--- Stmt (SExp pos expr) = return ()
--- Item :: Item -> TypeCheckerState ()
--- Item (NoInit pos ident) = return ()
--- Item (Init pos ident expr) = return ()
--- Expr :: Expr -> TypeCheckerState Type
--- Expr (ECast pos ident expr) = return $ Primitive pos (Int pos)
--- Expr (ECastPrim pos t expr) = return $ Primitive pos (Int pos)
--- Expr (ENewObject pos ident) = return $ Primitive pos (Int pos)
--- Expr (ENewArr pos t expr) = return $ Primitive pos (Int pos)
--- Expr (ENull pos) = return $ Primitive pos (Int pos)
--- Expr (EObject pos expr1 expr2) = return $ Primitive pos (Int pos)
--- Expr (EArr pos ident expr) = return $ Primitive pos (Int pos)
--- Expr (EVar pos ident) = return $ Primitive pos (Int pos)
--- Expr (ELitInt pos val) = return $ Primitive pos (Int pos)
--- Expr (ELitTrue pos) = return $ Primitive pos (Int pos)
--- Expr (ELitFalse pos) = return$ Primitive pos (Int pos)
--- Expr (EApp pos ident expr) = return $ Primitive pos (Int pos)
--- Expr (EString pos s) = return $ Primitive pos (Int pos)
--- Expr (Neg pos expr) = return $ Primitive pos (Int pos)
--- Expr (Not pos expr) = return $ Primitive pos (Int pos)
--- Expr (EMul pos expr1 op expr2) = return $ Primitive pos (Int pos)
--- Expr (EAdd pos expr1 op expr2) = return $ Primitive pos (Int pos)
--- Expr (ERel pos expr1 op expr2) = return $ Primitive pos (Int pos)
--- Expr (EAnd pos expr1 expr2) = return $ Primitive pos (Int pos)
--- Expr (EOr pos expr1 expr2) = return $ Primitive pos (Int pos)
+-- checkReturnExpr :: Expr -> TypeCheckerState Type
+-- checkReturnExpr (ECast pos ident expr) = return $ Primitive pos (Int pos)
+-- checkReturnExpr (ECastPrim pos t expr) = return $ Primitive pos (Int pos)
+-- checkReturnExpr (ENewObject pos ident) = return $ Primitive pos (Int pos)
+-- checkReturnExpr (ENewArr pos t expr) = return $ Primitive pos (Int pos)
+-- checkReturnExpr (ENull pos) = return $ Primitive pos (Int pos)
+-- checkReturnExpr (EObject pos expr1 expr2) = return $ Primitive pos (Int pos)
+-- checkReturnExpr (EArr pos ident expr) = return $ Primitive pos (Int pos)
+-- checkReturnExpr (EVar pos ident) = return $ Primitive pos (Int pos)
+-- checkReturnExpr (ELitInt pos val) = return $ Primitive pos (Int pos)
+-- checkReturnExpr (ELitTrue pos) = return $ Primitive pos (Int pos)
+-- checkReturnExpr (ELitFalse pos) = return$ Primitive pos (Int pos)
+-- checkReturnExpr (EApp pos ident expr) = return $ Primitive pos (Int pos)
+-- checkReturnExpr (EString pos s) = return $ Primitive pos (Int pos)
+-- checkReturnExpr (Neg pos expr) = return $ Primitive pos (Int pos)
+-- checkReturnExpr (Not pos expr) = return $ Primitive pos (Int pos)
+-- checkReturnExpr (EMul pos expr1 op expr2) = return $ Primitive pos (Int pos)
+-- checkReturnExpr (EAdd pos expr1 op expr2) = return $ Primitive pos (Int pos)
+-- checkReturnExpr (ERel pos expr1 op expr2) = return $ Primitive pos (Int pos)
+-- checkReturnExpr (EAnd pos expr1 expr2) = return $ Primitive pos (Int pos)
+-- checkReturnExpr (EOr pos expr1 expr2) = return $ Primitive pos (Int pos)
