@@ -7,9 +7,8 @@ int main() {
      j++;
   }
 
-   printInt(x);
-
-  for (int x : a) x;
+  for (int x : a) 
+    x;
    
 
   int x = 45;

@@ -273,6 +273,12 @@ optimizeExpr(ERel pos expr1 op expr2) = do
                 NE _  -> extractBool newExpr1 /= extractBool newExpr2
                 _     -> undefined)
         retBoolLit pos result
+    else if isEString newExpr1 && isEString newExpr2 then do
+        let result = (case op of
+                EQU _ -> extractString newExpr1 == extractString newExpr2
+                NE _  -> extractString newExpr1 /= extractString newExpr2
+                _     -> undefined)
+        retBoolLit pos result
     else
         return $ ERel pos newExpr1 op newExpr2
 

@@ -225,6 +225,7 @@ dontAllowSelf pos i =
 
 addAttr :: Ident -> Type -> Ident -> TypeCheckerState ()
 addAttr c type1 ident = do
+  _ensureTypeExists type1
   dontAllowSelf (hasPosition type1) ident
   _dontAllowVoid type1
   st <- get
@@ -273,8 +274,21 @@ _ensureUniqueIdents args =
     Just index -> throwException $ ArgumentRedeclarationException (hasPosition $ args !! index) (getArgIdent $ args !! index)
     Nothing -> return ()
 
+_ensureTypeExists :: Type -> TypeCheckerState ()
+_ensureTypeExists type1 =
+   case type1 of
+     Primitive _ _ -> return ()
+     ObjectType pos ident -> do
+      st <- get
+      case M.lookup ident (classEnv st) of
+        Nothing -> throwException $ UndefinedTypeException pos type1
+        Just _  -> return ()
+     Array _ type2 -> _ensureTypeExists type2
+     _ -> undefined
+
 addMethod :: Ident -> Type -> Ident -> [Arg] -> TypeCheckerState ()
 addMethod c ret ident args = do
+  _ensureTypeExists ret
   _ensureUniqueIdents args
   st <- get
   case M.lookup c (classEnv st) of
@@ -367,6 +381,7 @@ data TypeCheckerException  =  InvalidTypeExpectedException BNFC'Position Type Ty
                             | ObjectFieldGetException BNFC'Position
                             | SelfKeywordException BNFC'Position
                             | NoInitException BNFC'Position Type
+                            | IllegalArrayField BNFC'Position
                             | WildCardException BNFC'Position
 
 
@@ -459,6 +474,9 @@ instance Show TypeCheckerException where
 
   show (NoInitException position type1) =
     "type " ++ pretty type1 ++ " MUST BE INITIALIZED at " ++ pretty position
+
+  show (IllegalArrayField position) =
+    "array type CONTAINS ONLY length field at " ++ pretty position
 
   show (WildCardException position) =
     "Static Error: Unknown problem at " ++ pretty position

@@ -2,21 +2,25 @@ module Typechecker.TypeChecker where
 
 import           Cmm                        (CmmNode (res))
 import           Control.Applicative.Lift   ()
+import           Control.Exception          (try)
 import           Control.Monad              (unless, when, zipWithM_)
 import           Control.Monad.IO.Class     (MonadIO (liftIO))
 import           Control.Monad.Trans.Class  ()
-import           Control.Monad.Trans.Except (ExceptT)
-import           Control.Monad.Trans.State  (evalStateT, get, gets, put)
+import           Control.Monad.Trans.Except (ExceptT, runExceptT)
+import           Control.Monad.Trans.State  (StateT (runStateT), evalStateT,
+                                             get, gets, put)
 import           Data.List                  (elemIndex)
 import qualified Data.Map                   as M
 import qualified Data.Set                   as S
 import           Debug.Trace                (trace)
+import           GHC.IO                     (catchException)
 import           Syntax.AbsLattepp
 import           Typechecker.Data
 import           Typechecker.Utils          (checkMain, classState,
                                              defineInheritance, dontAllowVoid,
-                                             functionState, gatherFields,
-                                             gatherHeaders, topoSort)
+                                             ensureTypeExists, functionState,
+                                             gatherFields, gatherHeaders,
+                                             topoSort)
 import           Utils
 
 typeCheck :: Program -> ExceptT String IO ()
@@ -38,6 +42,7 @@ beginCheck (Program _ defs) = do
 
 typeCheckTopDef :: TopDef -> TypeCheckerState ()
 typeCheckTopDef (FnDef pos ret ident args block) = do
+   ensureTypeExists ret
    st <- get
    localTypeEnv (functionState st args ret) (typeCheckBlock block)
 
@@ -89,7 +94,10 @@ typeCheckStmt (Empty pos) = return ()
 
 typeCheckStmt (BStmt pos block) = typeCheckBlock block
 
-typeCheckStmt (Decl pos t items) = mapM_ (`typeCheckItem` t) items
+typeCheckStmt (Decl pos t items) = do
+   ensureTypeExists t
+   dontAllowVoid t
+   mapM_ (`typeCheckItem` t) items
 
 typeCheckStmt (Ass pos ident expr) = do
   st <- get
@@ -165,7 +173,6 @@ typeCheckStmt (SExp pos expr) = do
 
 typeCheckItem :: Item -> Type -> TypeCheckerState ()
 typeCheckItem (NoInit pos ident) type1 = do
-   dontAllowVoid type1
    st <- get
    case M.lookup ident (typeEnv st) of
       Nothing -> put $ setType st ident type1
@@ -175,7 +182,6 @@ typeCheckItem (NoInit pos ident) type1 = do
             else put $ setType st ident type1
 
 typeCheckItem (Init pos ident expr) type1 = do
-  dontAllowVoid type1
   st <- get
   case M.lookup ident (typeEnv st) of
     Nothing -> put $ setType st ident type1
@@ -196,8 +202,11 @@ typeCheckExpr (ECast pos ident expr) = do
    case eType of
       Primitive _ (Void _) -> return castType
       ObjectType _ _ -> do
-         findParent pos castType eType
-         return castType
+         p <- findParent pos castType eType
+         if p then
+            return castType
+         else
+            throwException $ InvalidCastException pos eType castType
       _ -> throwException $ InvalidCastException pos eType castType
 
 typeCheckExpr (ECastPrim pos castType expr) = do
@@ -213,6 +222,7 @@ typeCheckExpr (ENewObject pos type1) = do
 typeCheckExpr (ENewArr pos t expr) = do
    ensureType rawInt expr
    ensureTypeExists t
+   dontAllowVoid t
    return $ Array pos t
 
 typeCheckExpr (ENull pos) = return $ Primitive pos (Void pos)
@@ -222,9 +232,18 @@ typeCheckExpr (EObject pos expr1 expr2) = do
    case objectCheck st of
      Nothing -> do
       type1 <- typeCheckExpr expr1
-      ensureObject pos type1
-      put $ setObjectCheck st (Just type1)
-      typeCheckExpr expr2
+      ensureObjectOrArray pos type1
+      case type1 of
+        Array _ arrT ->
+         case expr2 of
+            EVar _ ident ->
+               if ident == Ident "length"
+                  then return arrT
+                  else throwException $ IllegalArrayField pos
+            _ -> throwException $ IllegalArrayField pos
+        _ -> do
+            put $ setObjectCheck st (Just type1)
+            typeCheckExpr expr2
      Just t -> do
       case expr1 of
          EVar _ ident -> do
@@ -322,17 +341,15 @@ typeCheckExpr (EAdd pos expr1 op expr2) = do
    _                   -> throwException $ WildCardException pos
 
 typeCheckExpr (ERel pos expr1 op expr2) = do
-   type1 <- allowTypes [rawInt, rawBool] expr1
-   type2 <- allowTypes [rawInt, rawBool] expr2
+   type1 <- typeCheckExpr expr1
+   type2 <- typeCheckExpr expr2
    ensureTypeMatch pos type1 type2
    case type1 of
-    Primitive _ (Int _) -> return $ Primitive pos (Bool pos)
-    Primitive _ (Bool _) ->
-      case op of
-         EQU _ -> return $ Primitive pos (Bool pos)
-         NE _ -> return $ Primitive pos (Bool pos)
-         _ -> throwException $ InvalidTypeExpectedException pos rawBool rawInt
-    _ -> throwException $ WildCardException pos
+    Primitive _ (Int _)  -> return $ Primitive pos (Bool pos)
+    Primitive _ (Bool _) -> allowEQ pos op
+    Primitive _ (Str _)  -> allowEQ pos op
+    ObjectType _ _       -> allowEQ pos op
+    _                    -> throwException $ InvalidTypeException pos type1
 
 typeCheckExpr (EAnd pos expr1 expr2) = do
    type1 <- ensureType rawBool expr1
@@ -360,6 +377,13 @@ ensureObject pos type1 = do
      ObjectType _ _ -> return ()
      _              -> throwException $ InvalidExpectedObjectException pos
 
+ensureObjectOrArray :: BNFC'Position -> Type -> TypeCheckerState ()
+ensureObjectOrArray pos type1 = do
+   case type1 of
+      ObjectType _ _ -> return ()
+      Array _ _      -> return ()
+      _              -> throwException $ InvalidExpectedObjectException pos
+
 --had to be done this way for it to make some sense in code
 checkPrimitive :: Type -> Bool
 checkPrimitive (Primitive _ _) = True
@@ -367,12 +391,27 @@ checkPrimitive _               = False
 
 ensureTypeMatch :: BNFC'Position -> Type -> Type -> TypeCheckerState ()
 ensureTypeMatch pos type1 type2 = do
+  st <- get
   if isSameType type1 type2
     then return ()
-    else throwException $ InvalidTypeExpectedException pos type2 type1
+    else do
+      ensureObject pos type1
+      ensureObject pos type2
+      let i1 = case type1 of
+            ObjectType _ ident-> ident
+            _                  -> undefined
+      let i2 = case type2 of
+            ObjectType _ ident-> ident
+            _                  -> undefined
+      b1 <- findParent pos type1 type2
+      b2 <- findParent pos type2 type1
+      if b1 || b2 then
+         return ()
+      else
+         throwException $ InvalidTypeExpectedException pos type2 type1
 
 isSameType :: Type -> Type -> Bool
-isSameType type1 type2 = raw type1 == raw type2
+isSameType t1 t2 = raw t1 == raw t2
 
 ensureType :: Type -> Expr -> TypeCheckerState ()
 ensureType t expr = do
@@ -397,18 +436,11 @@ ensureArgTypes pos ts exprs =
     then throwException $ InvalidNumberOfParametersException pos
     else zipWithM_ ensureType ts exprs
 
-ensureTypeExists :: Type -> TypeCheckerState ()
-ensureTypeExists type1 =
-   case type1 of
-     Primitive _ _ -> dontAllowVoid type1
-     ObjectType pos ident -> do
-      st <- get
-      case M.lookup ident (classEnv st) of
-        Nothing -> throwException $ UndefinedTypeException pos type1
-        Just _  -> return ()
-     Array _ type2 -> ensureTypeExists type2
-     _ -> undefined
-
+allowEQ :: BNFC'Position -> RelOp -> TypeCheckerState Type
+allowEQ pos op = case op of
+         EQU _ -> return $ Primitive pos (Bool pos)
+         NE _ -> return $ Primitive pos (Bool pos)
+         _ -> throwException $ InvalidTypeExpectedException pos rawBool rawInt
 
 -- -------------DONT ALLOW---------------------------------------------------------------
 dontAllowTypeMatch :: BNFC'Position -> Type -> Type -> TypeCheckerState ()
@@ -430,23 +462,23 @@ dontAllowType t expr = do
   return t
 
 -------------------------------------------------------------
-findParent :: BNFC'Position -> Type -> Type -> TypeCheckerState ()
+findParent :: BNFC'Position -> Type -> Type -> TypeCheckerState Bool
 findParent pos p c = _findParent pos p c c
 
-_findParent :: BNFC'Position -> Type -> Type -> Type -> TypeCheckerState ()
+_findParent :: BNFC'Position -> Type -> Type -> Type -> TypeCheckerState Bool
 _findParent pos0 pToFind@(ObjectType pos1 class1) c@(ObjectType pos2 class2) original =
    if class1 == class2 then do
-      return ()
+      return True
    else do
       st <- get
       case M.lookup class2 (classEnv st) of
          Nothing -> throwException $ UndefinedTypeException pos2 c
          Just (parent, _) ->
             case parent of
-            (Nothing, _, _) -> throwException $ InvalidCastException pos0 original pToFind
+            (Nothing, _, _) -> return False
             (Just pid, _, _) ->
                if pid == class1 then
-                  return ()
+                  return True
                else
                   _findParent pos0 pToFind (ObjectType Nothing pid) original
 _findParent pos _ _ _ = throwException $ WildCardException pos

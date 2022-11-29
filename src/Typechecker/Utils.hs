@@ -20,7 +20,7 @@ import           Syntax.AbsLattepp          (Arg, BNFC'Position, ClassBlock,
                                              Ident (Ident), TopDef,
                                              TopDef' (ClassDef, ExtClassDef, FnDef),
                                              Type,
-                                             Type' (ObjectType, Primitive))
+                                             Type' (Array, ObjectType, Primitive))
 import           Typechecker.Data           (ClassDefS,
                                              TypeCheckerException (..),
                                              TypeCheckerS (classEnv, funEnv),
@@ -45,6 +45,18 @@ ensureUniqueIdents args =
   case firstDuplicateIndex $ map getArgIdent args of
     Just index -> throwException $ ArgumentRedeclarationException (hasPosition $ args !! index) (getArgIdent $ args !! index)
     Nothing -> return ()
+
+ensureTypeExists :: Type -> TypeCheckerState ()
+ensureTypeExists type1 =
+   case type1 of
+     Primitive _ _ -> return ()
+     ObjectType pos ident -> do
+      st <- get
+      case M.lookup ident (classEnv st) of
+        Nothing -> throwException $ UndefinedTypeException pos type1
+        Just _  -> return ()
+     Array _ type2 -> ensureTypeExists type2
+     _ -> undefined
 
 dontAllowVoidArgs :: [Type] -> TypeCheckerState ()
 dontAllowVoidArgs = mapM_ dontAllowVoid
