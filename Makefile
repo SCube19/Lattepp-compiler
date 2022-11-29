@@ -1,19 +1,20 @@
 all : compiler
 
-compiler : Main.hs Utils.hs syntax typechecker optimizer
-	ghc Main.hs -o latc
+compiler : src/Main.hs src/Utils.hs syntax typechecker optimizer
+	ghc -isrc src/Main.hs -o latc
 
-syntax : Syntax/AbsLattepp.hs Syntax/LexLattepp.hs Syntax/ParLattepp.hs
+syntax : src/Syntax/AbsLattepp.hs src/Syntax/LexLattepp.hs src/Syntax/ParLattepp.hs
 
-optimizer : Optimizer/Optimizer.hs Optimizer/Data.hs Optimizer/Utils.hs
+optimizer : src/Optimizer/Optimizer.hs src/Optimizer/Data.hs src/Optimizer/Utils.hs
 
-typechecker : Typechecker/TypeChecker.hs Typechecker/Data.hs Typechecker/Utils.hs
+typechecker : src/Typechecker/TypeChecker.hs src/Typechecker/Data.hs src/Typechecker/Utils.hs
 
 # compiler : Compiler/Compiler.hs Compiler/CompilerData.hs 
 
 clean :
-	-rm -f *.hi *.o *.log *.aux *.dvi interpreter
-	-rm -f Optimizer/*.o Optimizer/*.hi
-	-rm -f Typechecker/*.o Typechecker/*.hi
-	-rm -f Compiler/*.o Compiler/*.hi
-	-make -C Syntax clean
+	-rm -f src/*.hi src/*.o latc
+	-rm -f src/Optimizer/*.o src/Optimizer/*.hi
+	-rm -f src/Typechecker/*.o src/Typechecker/*.hi
+	-rm -f src/Compiler/*.o src/Compiler/*.hi
+	-make -C src/Syntax clean
+	-rm -f src/Syntax/*.y src/Syntax/*.hi src/Syntax/*.bak src/Syntax/*.info src/Syntax/*.x
