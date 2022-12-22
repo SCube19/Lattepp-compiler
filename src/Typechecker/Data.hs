@@ -10,7 +10,6 @@ import qualified Data.Map                   as M
 import           Data.Maybe                 (fromMaybe)
 import qualified Data.Set                   as S
 import           Debug.Trace                (trace)
-import           Panic                      (throwGhcException)
 import           Syntax.AbsLattepp          (Arg, BNFC'Position, Block, Expr,
                                              HasPosition (hasPosition),
                                              Ident (Ident), PrimType' (Int),
