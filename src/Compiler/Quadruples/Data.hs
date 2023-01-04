@@ -1,20 +1,24 @@
 module Compiler.Quadruples.Data where
-import Control.Monad.Trans.State (StateT)
-import Control.Monad.Trans.Except (ExceptT)
-import qualified Data.Map as M
-import Syntax.AbsLattepp (Type, Type' (ObjectType))
-import Data.List (intercalate)
-import Data.Maybe (fromMaybe, isNothing)
+import qualified Compiler.Quadruples.Predata as Pre
+import           Control.Monad.Trans.Except  (ExceptT)
+import           Control.Monad.Trans.State   (StateT)
+import           Data.List                   (intercalate)
+import qualified Data.Map                    as M
+import           Data.Maybe                  (fromJust, fromMaybe, isNothing)
+import           Syntax.AbsLattepp           (Ident, Program, Type,
+                                              Type' (ObjectType))
 
 type QuadruplesState = StateT QuadrupleS (ExceptT String IO)
 data QuadrupleS = QuadrupleS {
-    qprogram :: QProgram,
-    nextReg :: Register,
-    nextLabel :: QLabel
+    preprocessing :: Pre.PreprocessS,
+    qprogram      :: QProgram,
+    nextReg       :: Register,
+    nextLabel     :: QLabel
 }
 
 initQuadruplesS :: QuadrupleS
 initQuadruplesS = QuadrupleS {
+    preprocessing = Pre.initPreprocessS,
     qprogram = QProgram {
         classes = [],
         funcs = [],
@@ -24,31 +28,67 @@ initQuadruplesS = QuadrupleS {
     nextLabel = QLabel 1
 }
 
+setPreprocessing :: QuadrupleS -> Pre.PreprocessS -> QuadrupleS
+setPreprocessing s prep = QuadrupleS {
+    preprocessing = prep,
+    qprogram = qprogram s,
+    nextReg = nextReg s,
+    nextLabel = nextLabel s
+}
+
+addClass :: QuadrupleS -> QClass -> QuadrupleS
+addClass s c = QuadrupleS {
+    preprocessing = preprocessing s,
+    qprogram = _addClass (qprogram s) c,
+    nextReg = nextReg s,
+    nextLabel = nextLabel s
+}
+
+_addClass :: QProgram -> QClass -> QProgram
+_addClass p c = QProgram {
+    classes = c : classes p,
+    funcs = funcs p,
+    strings = strings p
+}
+
 newtype Register = Register Integer
 
 data QProgram = QProgram {
     classes :: [QClass],
-    funcs :: [QFun],
+    funcs   :: [QFun],
     strings :: M.Map QLabel String
 }
 
 data QFun = QFun {
-    fident :: String,
+    fident     :: String,
     localcount :: Int,
-    body :: [Quadruple]
+    body       :: [Quadruple]
 }
 
 data QClass = QClass {
-    cident :: String,
-    fields :: [QCField],
+    cident  :: String,
+    fields  :: [QCField],
     methods :: [String],
-    super :: Maybe QClass
+    super   :: Maybe QClass
+}
+
+classDefPreToQClass :: Pre.ClassDefPre -> QClass
+classDefPreToQClass c = QClass {
+    cident = Pre.ident c,
+    fields = preFieldsToQFields (Pre.attrs c),
+    methods = map fst (M.toList $ Pre.methods c),
+    super = case Pre.super c of
+      Nothing -> Nothing
+      Just c2 -> Just $ classDefPreToQClass c2
 }
 
 data QCField = QCField {
     fieldName :: String,
     fieldSize :: Int
 }
+
+preFieldsToQFields :: M.Map String Type -> [QCField]
+preFieldsToQFields fs = map (\(f, s) -> QCField {fieldName = f, fieldSize = 4}) (M.toList fs)
 
 newtype QLabel = QLabel Int
 
@@ -60,11 +100,11 @@ data QValue = QBool Bool | QInt Int
 
 qvalueInt :: QValue -> Int
 qvalueInt (QBool b) = if b then 1 else 0
-qvalueInt (QInt i) = i
+qvalueInt (QInt i)  = i
 
 qvalueBool :: QValue -> Bool
 qvalueBool (QBool b) = b
-qvalueBool (QInt i) = i /= 0
+qvalueBool (QInt i)  = i /= 0
 data Quadruple =
     Add Register Register Register |
     Sub Register Register Register |
@@ -110,7 +150,7 @@ instance Show Offset where
 
 instance Show QValue where
     show (QBool b) = show b
-    show (QInt i) = show i
+    show (QInt i)  = show i
 
 instance Show Register where
     show (Register r) = "r" ++ show r
@@ -126,7 +166,7 @@ instance Show QCField where
 
 instance Show QFun where
     show f = fident f ++ ":\n" ++ concatMap show (body f)
-    
+
 instance Show Quadruple where
     show (Add r1 r2 result) = show result ++ "=" ++ show r1 ++ "+" ++ show r2
     show (Sub r1 r2 result) = show result ++ "=" ++ show r1 ++ "-" ++ show r2
@@ -158,5 +198,7 @@ instance Show Quadruple where
     show (Call label args result) = show result ++ "=call " ++ show label ++ "(" ++ intercalate "," (map show args) ++ ")"
     show (VCall label args result _ _) = show result ++ "=vcall " ++ show label ++ "(" ++ intercalate "," (map show args)++ ")"
     show (Vtab r1 type1) = "vt " ++ show type1 ++ ", " ++ show r1
+
+
 
 
