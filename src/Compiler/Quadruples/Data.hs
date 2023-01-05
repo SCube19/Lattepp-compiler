@@ -1,7 +1,7 @@
 module Compiler.Quadruples.Data where
 import qualified Compiler.Quadruples.Predata as Pre
 import           Control.Monad.Trans.Except  (ExceptT)
-import           Control.Monad.Trans.State   (StateT, get, put)
+import           Control.Monad.Trans.State   (StateT, get, gets, modify, put)
 import           Data.List                   (intercalate)
 import qualified Data.Map                    as M
 import           Data.Maybe                  (fromJust, fromMaybe, isNothing)
@@ -21,18 +21,30 @@ data QuadrupleS = QuadrupleS {
 }
 
 data LocalStore = LocalStore {
-    freeMem  :: [Int],
-    varToMem :: M.Map Ident Int
+    freeMem  :: [QIndex],
+    varToMem :: M.Map Ident QIndex
 }
 
 initLocalStore :: Int -> LocalStore
 initLocalStore size = LocalStore {
-    freeMem = [0..size],
+    freeMem = map QIndex [0..size],
     varToMem = M.empty
 }
 
-store :: LocalStore -> Ident -> (LocalStore, Int)
-store s i =
+store :: Ident -> QuadruplesState QIndex
+store i = do
+    s <- gets localStore
+    let (newS, mem) = _store s i
+    modify (`setStore` newS)
+    return mem
+
+free :: Ident -> QuadruplesState ()
+free i = do
+    s <- gets localStore
+    modify (`setStore` _free s i)
+
+_store :: LocalStore -> Ident -> (LocalStore, QIndex)
+_store s i =
     case freeMem s of
         [] -> undefined
         (x:xs) ->
@@ -41,8 +53,8 @@ store s i =
             varToMem = M.insert i x (varToMem s)
     }, x)
 
-free :: LocalStore -> Ident -> LocalStore
-free s i =
+_free :: LocalStore -> Ident -> LocalStore
+_free s i =
     let v = fromMaybe undefined (M.lookup i (varToMem s)) in
     LocalStore {
     freeMem = v : freeMem s,
@@ -59,8 +71,8 @@ initQuadruplesS = QuadrupleS {
     },
     maxLocals = 0,
     currentFun = Nothing,
-    nextReg = Register 1,
-    nextLabel = QLabel 1,
+    nextReg = Register 0,
+    nextLabel = QLabel 0,
     localStore = LocalStore {freeMem = [], varToMem = M.empty}
 }
 
@@ -144,10 +156,13 @@ _addClass p c = QProgram {
     strings = strings p
 }
 
-addQuad :: QuadrupleS -> Quadruple -> QuadrupleS
-addQuad s q = QuadrupleS {
+addQuad :: Quadruple -> QuadruplesState ()
+addQuad q = modify (`_addQuad` q)
+
+_addQuad :: QuadrupleS -> Quadruple -> QuadrupleS
+_addQuad s q = QuadrupleS {
     preprocessing = preprocessing s,
-    qprogram = _addQuad (qprogram s) (currentFun s) q,
+    qprogram = __addQuad (qprogram s) (currentFun s) q,
     maxLocals = maxLocals s,
     currentFun = currentFun s,
     nextReg = nextReg s,
@@ -155,8 +170,8 @@ addQuad s q = QuadrupleS {
     localStore = localStore s
 }
 
-_addQuad :: QProgram -> Maybe String -> Quadruple -> QProgram
-_addQuad p mf q =
+__addQuad :: QProgram -> Maybe String -> Quadruple -> QProgram
+__addQuad p mf q =
     let f = fromMaybe undefined mf in
     let lkpf = fromMaybe undefined $ M.lookup f (funcs p) in
     QProgram {
@@ -204,6 +219,15 @@ _incLabel (QLabel i) = QLabel (i + 1)
 
 _incReg :: Register -> Register
 _incReg (Register i) = Register (i + 1)
+
+
+storeEnv :: QuadrupleS -> QuadruplesState a -> QuadruplesState a
+storeEnv changedEnv action = do
+  backup <- gets localStore
+  result <- action
+  modify (`setStore` backup)
+  return result
+
 
 newtype Register = Register Int
 
@@ -277,6 +301,8 @@ data Quadruple =
     Concat Register Register Register |
     MovV QValue Register |
     Mov Register Register |
+    Inc QIndex Register |
+    Dec QIndex Register |
     Ret Register |
     Vret |
     Label QLabel |
@@ -285,7 +311,7 @@ data Quadruple =
     LoadArg QIndex |
     LoadIndir Register Offset Register Offset Register |
     LoadLbl QLabel Register |
-    Store QIndex Register |
+    Store Register QIndex |
     StoreIndir Register Offset Register Offset Register |
     Alloc QIndex |
     Call QLabel [Register] Register |
@@ -340,6 +366,8 @@ instance Show Quadruple where
     show (Concat r1 r2 result) = show result ++ "=concat(" ++ show r1 ++ ", " ++ show r2 ++ ")" ++ "\n"
     show (MovV val r1) = "mov " ++ show r1 ++ ", " ++ show val ++ "\n"
     show (Mov r1 r2) = "mov " ++ show r2 ++ ", " ++ show r1 ++ "\n"
+    show (Inc i1 r1) = "inc " ++ show i1 ++ ", " ++ show r1 ++ "\n"
+    show (Dec i1 r1) = "dec " ++ show i1 ++ ", " ++ show r1 ++ "\n"
     show (Ret r1) = "ret " ++ show r1 ++ "\n"
     show Vret = "ret" ++ "\n"
     show (Label label) = show label ++ "\n"
@@ -348,7 +376,7 @@ instance Show Quadruple where
     show (LoadArg i1) = "arg " ++ show i1 ++ "\n"
     show (LoadIndir addr offset1 offsetreg offset2 result) = show result ++ "= ptr [" ++ show addr ++ "+" ++ show offset1 ++ "+" ++ show offsetreg ++ "*" ++ show offset2 ++ "]" ++ "\n"
     show (LoadLbl label r1) = show r1 ++ "= ptr " ++ show label ++ "\n"
-    show (Store index r1) = "store " ++ show r1 ++ ", " ++ show index ++ "\n"
+    show (Store r1 index) = "store " ++ show index ++ ", " ++ show r1 ++ "\n"
     show (StoreIndir addr offset1 offsetreg offset2 value) = "store " ++ "[" ++ show addr ++ "+" ++ show offset1 ++ "+" ++ show offsetreg ++ "*" ++ show offset2 ++ "], " ++ show value ++ "\n"
     show (Alloc index) = "alloc " ++ show index ++ "\n"
     show (Call label args result) = show result ++ "=call " ++ show label ++ "(" ++ intercalate "," (map show args) ++ ")" ++ "\n"

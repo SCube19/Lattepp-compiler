@@ -8,6 +8,7 @@ import           Control.Monad.State            (MonadIO (liftIO),
                                                  MonadTrans (lift), evalStateT,
                                                  gets, modify, when)
 import           Control.Monad.Trans.Except     (ExceptT)
+import qualified Data.Map                       as M
 import           Syntax.AbsLattepp              as Abs
 import           Utils                          (Raw (raw), rawVoid)
 
@@ -30,19 +31,21 @@ quadruplizeTopDef (FnDef pos ret (Ident ident) args block)  = do
     liftIO $ print toReserve
     modify resetMaxLocals
     modify (`addFun` QFun ident toReserve []) --possibly add FLabel
-    mapM_ ((\local -> modify (`addQuad` local)) . (Alloc . QIndex)) [0..toReserve]
+    mapM_ (addQuad . (Alloc . QIndex)) [0..toReserve]
     modify (`setStore` initLocalStore toReserve)
     loadArgs args
     start <- getLabel
-    modify (`addQuad` Label start)
+    addQuad $ Label start
     quadruplizeBlock block
-    when (raw ret == rawVoid) $ modify (`addQuad` Vret)
+    when (raw ret == rawVoid) $ addQuad Vret
 
 quadruplizeTopDef (ClassDef pos ident block)        = return () -- todo
 quadruplizeTopDef (ExtClassDef pos ident ext block) = return () -- todo
 
 quadruplizeBlock :: Block -> QuadruplesState ()
-quadruplizeBlock (Block pos stmts) = return ()
+quadruplizeBlock (Block pos stmts) = do
+    st <- get
+    storeEnv st (mapM_ quadruplizeStmt stmts)
 
 quadruplizeClassBlock :: ClassBlock -> QuadruplesState ()
 quadruplizeClassBlock (ClassBlock pos stmts) = return ()
@@ -59,54 +62,148 @@ quadruplizeExtIdent (AttrId pos expr1 expr2) = return ()
 
 quadruplizeStmt :: Stmt -> QuadruplesState ()
 quadruplizeStmt (Empty pos)                     = return ()
-quadruplizeStmt (BStmt pos block)               = return ()
-quadruplizeStmt (Decl pos t items)              = return ()
-quadruplizeStmt (Ass pos ident expr)            = return ()
-quadruplizeStmt (Incr pos ident)                = return ()
-quadruplizeStmt (Decr pos ident)                = return ()
-quadruplizeStmt (Abs.Ret pos expr)              = return ()
-quadruplizeStmt (VRet pos)                      = return ()
-quadruplizeStmt (Cond pos expr stmt)            = return ()
-quadruplizeStmt (CondElse pos expr stmt1 stmt2) = return ()
-quadruplizeStmt (While pos expr stmt)           = return ()
+
+quadruplizeStmt (BStmt pos block)               = quadruplizeBlock block
+
+quadruplizeStmt (Decl pos t items)              = do
+    mapM_ quadruplizeItem items
+
+quadruplizeStmt (Ass pos ident expr)            = do
+    reg <- quadruplizeExpr expr
+    st <- gets localStore
+    case ident of
+      Id _ id -> do
+        case M.lookup id (varToMem st) of
+                Nothing -> undefined
+                Just mem -> do
+                        addQuad $ Store reg mem
+      ArrId _ id ex -> undefined
+      AttrId _ ex ex' -> undefined
+
+quadruplizeStmt (Incr pos ident)                = do
+    res <- getRegister
+    st <- gets localStore
+    case ident of
+      Id _ id -> case M.lookup id (varToMem st) of
+                    Nothing -> undefined
+                    Just mem -> do
+                        addQuad $ Inc mem res
+      ArrId ma id ex -> undefined
+      AttrId ma ex ex' -> undefined
+
+
+quadruplizeStmt (Decr pos ident)                = do
+    res <- getRegister
+    st <- gets localStore
+    case ident of
+      Id _ id -> case M.lookup id (varToMem st) of
+                    Nothing -> undefined
+                    Just mem -> do
+                        addQuad $ Dec mem res
+      ArrId ma id ex -> undefined
+      AttrId ma ex ex' -> undefined
+
+quadruplizeStmt (Abs.Ret pos expr)              = do
+    reg <- quadruplizeExpr expr
+    addQuad $ Compiler.Quadruples.Data.Ret reg
+
+quadruplizeStmt (VRet pos)                      = addQuad Vret
+
+quadruplizeStmt (Cond pos expr stmt)            = do
+    trueLabel <- getLabel
+    falseLabel <- getLabel
+    ifReg <- quadruplizeExpr expr
+    zero <- getRegister
+    addQuad $ MovV (QInt 0) zero
+    addQuad $ Cmp ifReg zero
+    addQuad $ Je falseLabel trueLabel
+    addQuad $ Label trueLabel
+    quadruplizeBlock (Block Nothing [stmt])
+    addQuad $ Label falseLabel
+
+quadruplizeStmt (CondElse pos expr stmt1 stmt2) = do
+    ifLabel <- getLabel
+    elseLabel <- getLabel
+    afterLabel <- getLabel
+    ifReg <- quadruplizeExpr expr
+    zero <- getRegister
+    addQuad $ MovV (QInt 0) zero
+    addQuad $ Cmp ifReg zero
+    addQuad $ Je elseLabel ifLabel
+    addQuad $ Label ifLabel
+    quadruplizeBlock (Block Nothing [stmt1])
+    addQuad $ Jmp afterLabel
+    addQuad $ Label elseLabel
+    quadruplizeBlock (Block Nothing [stmt2])
+    addQuad $ Label afterLabel
+
+
+
+quadruplizeStmt (While pos expr stmt)           = do
+    bodyLabel <- getLabel
+    condLabel <- getLabel
+    afterLabel <- getLabel
+    zero <- getRegister
+    addQuad $ Jmp condLabel
+    addQuad $ Label bodyLabel
+    quadruplizeBlock (Block Nothing [stmt])
+    addQuad $ Label condLabel
+    condReg <- quadruplizeExpr expr
+    addQuad $ MovV (QInt 0) zero
+    addQuad $ Cmp condReg zero
+    addQuad $ Je afterLabel bodyLabel
+    addQuad $ Label afterLabel
+
+
+
 quadruplizeStmt (For pos t ident1 ident2 stmt)  = return ()
-quadruplizeStmt (SExp pos expr)                 = return ()
 
-quadruplizeItem :: Type -> Item -> QuadruplesState ()
-quadruplizeItem t (NoInit pos ident)    = return ()
-quadruplizeItem t (Init pos ident expr) = return ()
+quadruplizeStmt (SExp pos expr)                 = do
+    quadruplizeExpr expr
+    return ()
 
-quadruplizeExpr :: Expr -> QuadruplesState ()
-quadruplizeExpr (ECast pos ident expr)    = return ()
-quadruplizeExpr (ECastPrim pos t expr)    = return ()
-quadruplizeExpr (ENewObject pos ident)    = return ()
-quadruplizeExpr (ENewArr pos t expr)      = return ()
-quadruplizeExpr (ENull pos)               = return ()
-quadruplizeExpr (EObject pos expr1 expr2) = return ()
-quadruplizeExpr (EArr pos ident expr)     = return ()
-quadruplizeExpr (EVar pos ident)          = return ()
-quadruplizeExpr (ELitInt pos integer)     = return ()
-quadruplizeExpr (ELitTrue pos)            = return ()
-quadruplizeExpr (ELitFalse pos)           = return ()
-quadruplizeExpr (EString pos s)           = return ()
-quadruplizeExpr (EApp pos ident exprs)    = return ()
-quadruplizeExpr (Abs.Neg pos expr)        = return ()
-quadruplizeExpr (Abs.Not pos expr)        = return ()
-quadruplizeExpr (EMul pos expr1 op expr2) = return ()
-quadruplizeExpr (EAdd pos expr1 op expr2) = return ()
-quadruplizeExpr (ERel pos expr1 op expr2) = return ()
-quadruplizeExpr (EAnd pos expr1 expr2)    = return ()
-quadruplizeExpr (EOr pos expr1 expr2)     = return ()
+quadruplizeItem :: Item -> QuadruplesState ()
+quadruplizeItem (NoInit pos ident)    = do
+    reg <- getRegister
+    addQuad $ MovV (QInt 0) reg
+    mem <- store ident
+    addQuad $ Store reg mem
+
+quadruplizeItem (Init pos ident expr) = do
+    reg <- quadruplizeExpr expr
+    mem <- store ident
+    addQuad $ Store reg mem
+
+
+quadruplizeExpr :: Expr -> QuadruplesState Register
+quadruplizeExpr (ECast pos ident expr)    = return $ Register 0
+quadruplizeExpr (ECastPrim pos t expr)    = return $ Register 0
+quadruplizeExpr (ENewObject pos ident)    = return $ Register 0
+quadruplizeExpr (ENewArr pos t expr)      = return $ Register 0
+quadruplizeExpr (ENull pos)               = return $ Register 0
+quadruplizeExpr (EObject pos expr1 expr2) = return $ Register 0
+quadruplizeExpr (EArr pos ident expr)     = return $ Register 0
+quadruplizeExpr (EVar pos ident)          = return $ Register 0
+quadruplizeExpr (ELitInt pos integer)     = return $ Register 0
+quadruplizeExpr (ELitTrue pos)            = return $ Register 0
+quadruplizeExpr (ELitFalse pos)           = return $ Register 0
+quadruplizeExpr (EString pos s)           = return $ Register 0
+quadruplizeExpr (EApp pos ident exprs)    = return $ Register 0
+quadruplizeExpr (Abs.Neg pos expr)        = return $ Register 0
+quadruplizeExpr (Abs.Not pos expr)        = return $ Register 0
+quadruplizeExpr (EMul pos expr1 op expr2) = return $ Register 0
+quadruplizeExpr (EAdd pos expr1 op expr2) = return $ Register 0
+quadruplizeExpr (ERel pos expr1 op expr2) = return $ Register 0
+quadruplizeExpr (EAnd pos expr1 expr2)    = return $ Register 0
+quadruplizeExpr (EOr pos expr1 expr2)     = return $ Register 0
 
 
 
 loadArgs :: [Arg] -> QuadruplesState ()
 loadArgs [] = return ()
 loadArgs ((Arg _ _ ident):as) = do
-    curr <- gets localStore
-    let (s, mem) = store curr ident
-    modify (`setStore` s)
-    modify (`addQuad` LoadArg (QIndex mem)) --due to how store works arg index and mem index are the same
+    mem <- store ident
+    addQuad $ LoadArg mem --due to how store works arg index and mem index are the same
     loadArgs as
 
 --------------------------------------------------------------------------------------

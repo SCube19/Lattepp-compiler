@@ -1,28 +1,10 @@
 int main() {
-  int[] a = new int[2];
-  for(int i : a)
-    int t;
-  
-  {
-    int pp,ppp,pppp,ppppp;
-  }
+  int x;
+  while (x == 0) {
+    int y;
+    y++;
 
-  {
-    int a,s,f,b;
   }
-
-  {
-    int x;
-    {
-      int d,gs,hs,ll;
-    }
-    int jj;
-  }
-
-  int hj;
   return 0;
 }
 
-int func(int x, int y) {
-  return 1;
-}
