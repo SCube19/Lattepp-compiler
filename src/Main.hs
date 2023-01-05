@@ -22,8 +22,8 @@ runProgram :: String -> ExceptT String IO String
 runProgram s = do
   tokens <- tokenize s
   typeCheck tokens
-  optimized <- optimize tokens
-  cleaned <- cleanDeadCode optimized
+  --optimized <- optimize tokens
+  cleaned <- cleanDeadCode tokens --optimized
   checkReturn cleaned
   liftIO $ hPutStrLn stderr "OK"
   compile cleaned
