@@ -31,7 +31,7 @@ quadruplizeTopDef (FnDef pos ret (Ident ident) args block)  = do
     liftIO $ print toReserve
     modify resetMaxLocals
     modify (`addFun` QFun ident toReserve []) --possibly add FLabel
-    mapM_ (addQuad . (Alloc . QIndex)) [0..toReserve]
+    mapM_ (addQuad . (Alloc . QIndex)) [0..toReserve - 1]
     modify (`setStore` initLocalStore toReserve)
     loadArgs args
     start <- getLabel
@@ -154,8 +154,6 @@ quadruplizeStmt (While pos expr stmt)           = do
     addQuad $ Je afterLabel bodyLabel
     addQuad $ Label afterLabel
 
-
-
 quadruplizeStmt (For pos t ident1 ident2 stmt)  = return ()
 
 quadruplizeStmt (SExp pos expr)                 = do
@@ -176,28 +174,179 @@ quadruplizeItem (Init pos ident expr) = do
 
 
 quadruplizeExpr :: Expr -> QuadruplesState Register
-quadruplizeExpr (ECast pos ident expr)    = return $ Register 0
-quadruplizeExpr (ECastPrim pos t expr)    = return $ Register 0
-quadruplizeExpr (ENewObject pos ident)    = return $ Register 0
-quadruplizeExpr (ENewArr pos t expr)      = return $ Register 0
-quadruplizeExpr (ENull pos)               = return $ Register 0
-quadruplizeExpr (EObject pos expr1 expr2) = return $ Register 0
-quadruplizeExpr (EArr pos ident expr)     = return $ Register 0
-quadruplizeExpr (EVar pos ident)          = return $ Register 0
-quadruplizeExpr (ELitInt pos integer)     = return $ Register 0
-quadruplizeExpr (ELitTrue pos)            = return $ Register 0
-quadruplizeExpr (ELitFalse pos)           = return $ Register 0
-quadruplizeExpr (EString pos s)           = return $ Register 0
-quadruplizeExpr (EApp pos ident exprs)    = return $ Register 0
-quadruplizeExpr (Abs.Neg pos expr)        = return $ Register 0
-quadruplizeExpr (Abs.Not pos expr)        = return $ Register 0
-quadruplizeExpr (EMul pos expr1 op expr2) = return $ Register 0
-quadruplizeExpr (EAdd pos expr1 op expr2) = return $ Register 0
-quadruplizeExpr (ERel pos expr1 op expr2) = return $ Register 0
-quadruplizeExpr (EAnd pos expr1 expr2)    = return $ Register 0
-quadruplizeExpr (EOr pos expr1 expr2)     = return $ Register 0
+quadruplizeExpr (ECast pos ident expr)    = return $ Register 0 False
+
+quadruplizeExpr (ECastPrim pos t expr)    = return $ Register 0 False
+
+quadruplizeExpr (ENewObject pos ident)    = return $ Register 0 False
+
+quadruplizeExpr (ENewArr pos t expr)      = return $ Register 0 False
+
+quadruplizeExpr (ENull pos)               = do
+    reg <- getRegister
+    addQuad $ MovV (QInt 0) reg
+    return reg
+
+quadruplizeExpr (EObject pos expr1 expr2) = return $ Register 0 False
+
+quadruplizeExpr (EArr pos ident expr)     = return $ Register 0 False
+
+quadruplizeExpr (EVar pos ident)          = do
+    s <- gets localStore
+    case M.lookup ident (varToMem s) of
+      Nothing -> undefined
+      Just mem -> do
+        reg <- getRegister
+        addQuad $ Load mem reg
+        return reg
+
+quadruplizeExpr (ELitInt pos integer)     = do
+    reg <- getRegister
+    addQuad $ MovV (qinteger integer) reg
+    return reg
+
+quadruplizeExpr (ELitTrue pos)            = do
+    reg <- getRegister
+    addQuad $ MovV (QBool True) reg
+    return reg
+
+quadruplizeExpr (ELitFalse pos)           = do
+    reg <- getRegister
+    addQuad $ MovV (QBool False) reg
+    return reg
+
+quadruplizeExpr (EString pos s)           = do
+    reg <- getRegister
+    label <- addString s
+    let strReg = stringReg reg
+    addQuad $ LoadLbl label strReg
+    return strReg
+
+quadruplizeExpr (EApp pos (Ident ident) exprs)    = do
+    reg <- getRegister
+    args <- mapM quadruplizeExpr exprs
+    addQuad $ Call ident args reg
+    return reg
+
+quadruplizeExpr (Abs.Neg pos expr)        = do
+    reg <- quadruplizeExpr expr
+    addQuad $ Compiler.Quadruples.Data.Neg reg
+    return reg
+
+quadruplizeExpr (Abs.Not pos expr)        = do
+    reg <- quadruplizeExpr expr
+    addQuad $ Compiler.Quadruples.Data.Not reg
+    return reg
+
+quadruplizeExpr (EMul pos expr1 op expr2) = do
+    reg <- getRegister
+    r1 <- quadruplizeExpr expr1
+    r2 <- quadruplizeExpr expr2
+    case op of
+      Times _   -> addQuad $ Mul r1 r2 reg
+      Abs.Div _ -> addQuad $ Compiler.Quadruples.Data.Div r1 r2 reg
+      Abs.Mod _ -> addQuad $ Compiler.Quadruples.Data.Mod r1 r2 reg
+    return reg
+
+quadruplizeExpr (EAdd pos expr1 op expr2) = do
+    reg <- getRegister
+    r1 <- quadruplizeExpr expr1
+    r2 <- quadruplizeExpr expr2
+    case op of
+      Plus _ -> if isStringReg r1 then do
+                    addQuad $ Call "1__concat" [r1, r2] reg --defining function with number at the begining protects us from name conflicts | typechecking allows us to check only one register
+                else
+                    addQuad $ Compiler.Quadruples.Data.Add r1 r2 reg
+      Minus _ -> addQuad $ Compiler.Quadruples.Data.Sub r1 r2 reg
+    return reg
+
+quadruplizeExpr (ERel pos expr1 op expr2) = do
+    reg <- getRegister
+    r1 <- quadruplizeExpr expr1
+    r2 <- quadruplizeExpr expr2
+    if isStringReg r1 then do
+        quadruplizeStringRel reg r1 r2 op
+    else do
+        falsy <- getLabel
+        truey <- getLabel
+        afterLabel <- getLabel
+        addQuad $ Cmp r1 r2
+        case op of
+            LTH _ -> addQuad $ Jl truey falsy
+            LE _  -> addQuad $ Jle truey falsy
+            GTH _ -> addQuad $ Jg truey falsy
+            GE _  -> addQuad $ Jge truey falsy
+            EQU _ -> addQuad $ Je truey falsy
+            NE _  ->addQuad $ Je falsy truey
+        addQuad $ Label falsy
+        addQuad $ MovV (QBool False) reg
+        addQuad $ Jmp afterLabel
+        addQuad $ Label truey
+        addQuad $ MovV (QBool True) reg
+        addQuad $ Label afterLabel
+        return reg
+
+quadruplizeExpr (EAnd pos expr1 expr2)    = do
+    reg <- getRegister
+    shortCircuit <- getLabel
+    falsy <- getLabel
+    truey <- getLabel
+    afterLabel <- getLabel
+    left <- quadruplizeExpr expr1
+    f <- getRegister
+    addQuad $ MovV (QBool False) f
+    addQuad $ Cmp left f
+    addQuad $ Je falsy shortCircuit
+    addQuad $ Label shortCircuit
+    right <- quadruplizeExpr expr2
+    f2 <- getRegister
+    addQuad $ MovV (QBool False) f2
+    addQuad $ Cmp right f2
+    addQuad $ Je falsy truey
+    addQuad $ Label falsy
+    addQuad $ MovV (QBool False) reg
+    addQuad $ Jmp afterLabel
+    addQuad $ Label truey
+    addQuad $ MovV (QBool True) reg
+    addQuad $ Label afterLabel
+    return reg
 
 
+quadruplizeExpr (EOr pos expr1 expr2)     = do
+    reg <- getRegister
+    shortCircuit <- getLabel
+    falsy <- getLabel
+    truey <- getLabel
+    afterLabel <- getLabel
+    left <- quadruplizeExpr expr1
+    f <- getRegister
+    addQuad $ MovV (QBool False) f
+    addQuad $ Cmp left f
+    addQuad $ Je shortCircuit truey
+    addQuad $ Label shortCircuit
+    right <- quadruplizeExpr expr2
+    f2 <- getRegister
+    addQuad $ MovV (QBool False) f2
+    addQuad $ Cmp right f2
+    addQuad $ Je falsy truey
+    addQuad $ Label falsy
+    addQuad $ MovV (QBool False) reg
+    addQuad $ Jmp afterLabel
+    addQuad $ Label truey
+    addQuad $ MovV (QBool True) reg
+    addQuad $ Label afterLabel
+    return reg
+
+
+quadruplizeStringRel :: Register -> Register -> Register -> RelOp -> QuadruplesState Register
+quadruplizeStringRel reg r1 r2 op = do
+    case op of
+        EQU ma -> addQuad $ Call "1__equals" [r1, r2] reg
+        NE ma -> do
+                 addQuad $ Call "1__equals" [r1, r2] reg
+                 addQuad $ Compiler.Quadruples.Data.Neg reg
+        _ -> undefined
+    return reg
 
 loadArgs :: [Arg] -> QuadruplesState ()
 loadArgs [] = return ()
