@@ -329,8 +329,7 @@ quadruplizeStringRel reg r1 r2 op = do
     case op of
         EQU ma -> addQuad $ Call "1__equals" [r1, r2] reg
         NE ma -> do
-                 addQuad $ Call "1__equals" [r1, r2] reg
-                 addQuad $ Compiler.Quadruples.Data.Neg reg
+                 addQuad $ Call "1__notequals" [r1, r2] reg
         _ -> undefined
     return reg
 

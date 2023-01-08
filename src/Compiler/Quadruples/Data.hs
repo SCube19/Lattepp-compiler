@@ -313,7 +313,7 @@ qinteger :: Integer -> QValue
 qinteger i = QInt $ fromIntegral i
 
 qvalueInt :: QValue -> Int
-qvalueInt (QBool b) = if b then 1 else 0
+qvalueInt (QBool b) = if b then 2^32 - 1 else 0
 qvalueInt (QInt i)  = i
 
 qvalueBool :: QValue -> Bool
@@ -335,8 +335,8 @@ data Quadruple =
     Jg QLabel |
     Jle QLabel |
     Jl QLabel |
-    Neg Register | -- consider one register
-    Not Register | -- consider one register
+    Neg Register |
+    Not Register |
     MovV QValue Register |
     Mov Register Register |
     Inc QIndex Register |
@@ -344,7 +344,6 @@ data Quadruple =
     Ret Register |
     Vret |
     Label QLabel |
-    FLabel String |
     Load QIndex Register |
     LoadArg QIndex |
     LoadIndir Register Offset Register Offset Register |
@@ -380,7 +379,6 @@ extractResult (Dec _ r)              = Just r
 extractResult (Ret _)                = Nothing
 extractResult Vret                   = Nothing
 extractResult (Label _)              = Nothing
-extractResult (FLabel _)             = Nothing
 extractResult (Load _ r)             = Just r
 extractResult (LoadArg _)            = Nothing
 extractResult (LoadIndir _ _ _ _ r)  = Just r
@@ -415,7 +413,6 @@ extractAll (Dec _ r1)                = [r1]
 extractAll (Ret r1)                  = [r1]
 extractAll Vret                      = []
 extractAll (Label _)                 = []
-extractAll (FLabel _)                = []
 extractAll (Load _ r1)               = [r1]
 extractAll (LoadArg _)               = []
 extractAll (LoadIndir r1 _ r2 _ r3)  = [r1, r2, r3]
@@ -437,8 +434,8 @@ instance Show Offset where
     show (Offset o) = show o
 
 instance Show QValue where
-    show (QBool b) = show b
-    show (QInt i)  = show i
+    show x@(QBool b) = show $ qvalueInt x
+    show (QInt i)    = show i
 
 instance Show Register where
     show (Register r _) = "r" ++ show r
@@ -481,7 +478,6 @@ instance Show Quadruple where
     show (Ret r1) = "ret " ++ show r1 ++ "\n"
     show Vret = "ret" ++ "\n"
     show (Label label) = show label ++ "\n"
-    show (FLabel label) = "F" ++ show label ++ "\n"
     show (Load index r1) = "load " ++ show r1 ++ ", " ++ show index ++ "\n"
     show (LoadArg i1) = "arg " ++ show i1 ++ "\n"
     show (LoadIndir addr offset1 offsetreg offset2 result) = show result ++ "= ptr [" ++ show addr ++ "+" ++ show offset1 ++ "+" ++ show offsetreg ++ "*" ++ show offset2 ++ "]" ++ "\n"

@@ -7,23 +7,43 @@ import qualified Data.Map                   as M
 
 type CompilerState = StateT CompilerS (ExceptT String IO)
 
-newtype CompilerS = CompilerS {
-    instructions    :: [AsmInstr]
+data CompilerS = CompilerS {
+    instructions :: [AsmInstr],
+    mapping      :: MemoryAllocation,
+    usedMem      :: Int
 }
 
 initCompilerS :: CompilerS
 initCompilerS = CompilerS {
-    instructions = []
+    instructions = [],
+    usedMem = 0,
+    mapping = M.empty
 }
 
 addInstr :: AsmInstr -> CompilerState ()
 addInstr i = modify (\s -> CompilerS {
-    instructions = instructions s ++ [i]
+    instructions = instructions s ++ [i],
+    mapping = mapping s,
+    usedMem = usedMem s
+})
+
+setAllocation :: MemoryAllocation -> Int -> CompilerState ()
+setAllocation al mem = modify (\s -> CompilerS {
+    instructions = instructions s,
+    usedMem = mem,
+    mapping = al
+})
+
+resetAllocation :: CompilerState ()
+resetAllocation = modify (\s -> CompilerS {
+    instructions = instructions s,
+    usedMem = 0,
+    mapping = M.empty
 })
 
 newtype AsmLabel = AsmLabel String
 
-newtype Offset = Offset Int
+type Offset = Int
 
 data AsmValue = VInt Int | VLabel AsmLabel
 
@@ -45,6 +65,11 @@ data AsmOperand =
     RegOp AsmRegister |
     MemOp AsmMem
 
+isAsmValue :: AsmOperand -> Bool
+isAsmValue (ValOp _) = True
+isAsmValue (RegOp _) = False
+isAsmValue (MemOp _) = False
+
 data CallTarget =
     CReg AsmRegister |
     CLabel AsmLabel
@@ -64,6 +89,7 @@ data AsmInstr =
     Cdq |
     Cmp OpSize AsmOperand AsmOperand |
     ILabel AsmLabel |
+    Jmp AsmLabel |
     Je AsmLabel |
     Jne AsmLabel |
     Jl AsmLabel |
@@ -79,15 +105,13 @@ data AsmInstr =
     Not OpSize AsmOperand |
     Push OpSize AsmOperand |
     Ret |
+    Clear OpSize AsmOperand |
     Section String |
     Extern String |
     Text String |
     Global String |
     DataString String String |
     DataBuffer String Int
-
-instance Show Offset where
-    show (Offset i) = show i
 
 instance Show AsmLabel where
     show (AsmLabel l) = l
@@ -131,23 +155,25 @@ instance Show AsmInstr where
     show (Div s o1)    = "\tidiv " ++ show s ++ " " ++ show o1 ++ "\n"
     show (Call trgt)   = "\tcall " ++ show trgt ++ "\n"
     show Cdq           = "\tcdq"
-    show (Cmp s o1 o2)   = "\tcmp " ++ show s ++ " " ++ show o1 ++ ", " ++ show o2 ++ "\n"
+    show (Cmp s o1 o2) = "\tcmp " ++ show s ++ " " ++ show o1 ++ ", " ++ show o2 ++ "\n"
     show (ILabel l1)   = show l1 ++ ":\n"
+    show (Jmp l1)      = "\tjmp " ++ show l1 ++ "\n"
     show (Je l1)       = "\tje " ++ show l1 ++ "\n"
-    show (Jne l1)      = "\njne " ++ show l1 ++ "\n"
-    show (Jl l1)       = "\njl " ++ show l1 ++ "\n"
-    show (Jle l1)      = "\njle " ++ show l1 ++ "\n"
-    show (Jg l1)       = "\njg " ++ show l1 ++ "\n"
-    show (Jge l1)      = "\njge " ++ show l1 ++ "\n"
-    show (Inc o1)      = "\ninc " ++ show o1 ++ "\n"
-    show (Dec o1)      = "\ndec " ++ show o1 ++ "\n"
-    show (Lea s o1 o2) = "\nlea " ++ show s ++ " " ++ show o1 ++ ", " ++ show o2 ++ "\n"
-    show Leave         = "\nleave"
-    show (Mov s o1 o2) = "\nmov " ++ show s ++ " " ++ show o1 ++ ", " ++ show o2 ++ "\n"
-    show (Neg s o1)    = "\nneg " ++ show s ++ " " ++ show o1 ++ "\n"
-    show (Not s o1)    = "\nnot " ++ show s ++ " " ++ show o1 ++ "\n"
-    show (Push s o1)   = "\npush " ++ show s ++ " " ++ show o1 ++ "\n"
-    show Ret           = "\nret"
+    show (Jne l1)      = "\tjne " ++ show l1 ++ "\n"
+    show (Jl l1)       = "\tjl " ++ show l1 ++ "\n"
+    show (Jle l1)      = "\tjle " ++ show l1 ++ "\n"
+    show (Jg l1)       = "\tjg " ++ show l1 ++ "\n"
+    show (Jge l1)      = "\tjge " ++ show l1 ++ "\n"
+    show (Inc o1)      = "\tinc " ++ show o1 ++ "\n"
+    show (Dec o1)      = "\tdec " ++ show o1 ++ "\n"
+    show (Lea s o1 o2) = "\tlea " ++ show s ++ " " ++ show o1 ++ ", " ++ show o2 ++ "\n"
+    show Leave         = "\tleave"
+    show (Mov s o1 o2) = "\tmov " ++ show s ++ " " ++ show o1 ++ ", " ++ show o2 ++ "\n"
+    show (Neg s o1)    = "\tneg " ++ show s ++ " " ++ show o1 ++ "\n"
+    show (Not s o1)    = "\tnot " ++ show s ++ " " ++ show o1 ++ "\n"
+    show (Push s o1)   = "\tpush " ++ show s ++ " " ++ show o1 ++ "\n"
+    show Ret           = "\tret"
+    show (Clear s o1)  = "\txor " ++ show s ++ " " ++ show o1 ++ ", " ++ show o1 ++ "\n"
     show (Section s)   = "section ." ++ s ++ "\n"
     show (Extern s)    = "extern " ++ s ++ "\n"
     show (Text s)      = "text " ++ s ++ "\n"
@@ -167,36 +193,86 @@ type AllocatorState = StateT AllocatorS (ExceptT String IO)
 
 data AllocatorS = AllocatorS {
     allocation      :: MemoryAllocation,
-    usedStackOffset :: Int,
-    memoryPool      :: [AsmMem],
-    usage           :: M.Map Register (Int, Int)
+    usedStackOffset :: Offset,
+    allocSize       :: Int,
+    memoryPool      :: [AsmOperand],
+    fusage          :: M.Map Register Int,
+    lusage          :: M.Map Register Int
 }
 
-type MemoryAllocation = M.Map Register AsmMem
+type MemoryAllocation = M.Map Register AsmOperand
 
 initAllocatorS :: Int -> AllocatorS
 initAllocatorS init = AllocatorS {
     allocation = M.empty,
     usedStackOffset = -4 * (1 + init),
+    allocSize = 0,
     memoryPool = [],
-    usage = M.empty
+    fusage = M.empty,
+    lusage = M.empty
 }
 
-getStackOffset :: AllocatorState Int
+getStackOffset :: AllocatorState Offset
 getStackOffset = do
     off <- gets usedStackOffset
     modify (\s -> AllocatorS {
         allocation = allocation s,
         usedStackOffset = usedStackOffset s - 4,
+        allocSize = allocSize s + 1,
         memoryPool = memoryPool s,
-        usage = usage s
+        fusage = fusage s,
+        lusage = lusage s
     })
     return off
 
-allocate :: Register -> AsmMem -> AllocatorState ()
+allocate :: Register -> AsmOperand -> AllocatorState ()
 allocate reg mem = modify (\s -> AllocatorS {
     allocation = M.insert reg mem (allocation s),
-    usedStackOffset = usedStackOffset s - 4,
+    allocSize = allocSize s,
+    usedStackOffset = usedStackOffset s,
     memoryPool = memoryPool s,
-    usage = usage s
+    fusage = fusage s,
+    lusage = lusage s
 })
+
+insertFirstUsage :: Register -> Int -> AllocatorState ()
+insertFirstUsage r i = modify (\s -> AllocatorS {
+        allocation = allocation s,
+        usedStackOffset = usedStackOffset s,
+        allocSize = allocSize s,
+        memoryPool = memoryPool s,
+        fusage = M.insertWith min r i (fusage s),
+        lusage = lusage s
+    })
+
+insertLastUsage :: Register -> Int -> AllocatorState ()
+insertLastUsage r i = modify (\s -> AllocatorS {
+        allocation = allocation s,
+        usedStackOffset = usedStackOffset s,
+        allocSize = allocSize s,
+        memoryPool = memoryPool s,
+        fusage = fusage s,
+        lusage = M.insertWith max r i (lusage s)
+    })
+
+addToPool :: AsmOperand -> AllocatorState ()
+addToPool op = modify (\s -> AllocatorS {
+    allocation = allocation s,
+    usedStackOffset = usedStackOffset s,
+    allocSize = allocSize s,
+    memoryPool = op : memoryPool s,
+    fusage = fusage s,
+    lusage = lusage s
+})
+
+shrinkPool :: AllocatorState ()
+shrinkPool = modify (\s ->
+    let (m:ms) = memoryPool s in
+        AllocatorS {
+        allocation = allocation s,
+        usedStackOffset = usedStackOffset s,
+        allocSize = allocSize s,
+        memoryPool = ms,
+        fusage = fusage s,
+        lusage = lusage s
+    })

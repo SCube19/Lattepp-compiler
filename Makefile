@@ -1,7 +1,7 @@
 all : compiler
 
 compiler : src/Main.hs src/Utils.hs syntax typechecker optimizer
-	ghc -isrc -package ghc src/Main.hs -o latc
+	ghc -isrc -package ghc src/Main.hs -o latc 
 
 syntax : src/Syntax/AbsLattepp.hs src/Syntax/LexLattepp.hs src/Syntax/ParLattepp.hs
 

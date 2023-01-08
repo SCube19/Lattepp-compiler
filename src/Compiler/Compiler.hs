@@ -1,10 +1,15 @@
 module Compiler.Compiler where
-import           Compiler.Data
+import           Compiler.Data                  as X86
 import           Compiler.Quadruples.Data       as Quad
 import           Compiler.Quadruples.Quadruples (quadruplize)
+import           Control.Monad                  (unless, when)
+import           Control.Monad.Cont             (MonadIO (liftIO),
+                                                 MonadTrans (lift))
 import           Control.Monad.Trans.Except     (ExceptT)
-import           Control.Monad.Trans.State      (evalStateT, gets)
+import           Control.Monad.Trans.State      (evalStateT, get, gets)
+import           Data.List                      (delete)
 import qualified Data.Map                       as M
+import           Data.Maybe                     (fromMaybe)
 import qualified Data.Set                       as S
 import           Syntax.AbsLattepp              (Program)
 
@@ -12,7 +17,7 @@ compile :: Program -> ExceptT String IO String
 compile p =  do
     quads <- evalStateT (quadruplize p) initQuadruplesS
     asm <- evalStateT (compileQuads quads) initCompilerS
-    return $ show asm
+    return $ concatMap show asm
 
 compileQuads :: QProgram -> CompilerState [AsmInstr]
 compileQuads p = do
@@ -27,43 +32,162 @@ compileQuads p = do
     addInstr $ Extern "error"
     addInstr $ Extern "1__concat"
     addInstr $ Extern "1__equals"
+    addInstr $ Extern "1__notequals"
     mapM_ compileQuadsFun (funcs p)
     gets instructions
 
 
 compileQuadsFun :: QFun -> CompilerState ()
 compileQuadsFun f = do
-    return ()
-
+    resetAllocation
+    (mapping, size) <- lift $ evalStateT (allocMemory (body f)) (initAllocatorS (localcount f))
+    setAllocation mapping (size + localcount f)
+    addInstr $ X86.ILabel $ AsmLabel (fident f)
+    mapM_ compileQuad (body f)
 
 compileQuad :: Quadruple -> CompilerState ()
-compileQuad (Quad.Add r1 r2 res)                  = return ()
-compileQuad (Quad.Sub r1 r2 res)                  = return ()
-compileQuad (Quad.Div r1 r2 res)                  = return ()
-compileQuad (Quad.Mul r1 r2 res)                  = return ()
-compileQuad (Quad.Mod r1 r2 res)                  = return ()
-compileQuad (Quad.Cmp r1 r2)                      = return ()
-compileQuad (Quad.Jmp l1)                         = return ()
-compileQuad (Quad.Je l1)                          = return ()
-compileQuad (Quad.Jne l1)                         = return ()
-compileQuad (Quad.Jge l1)                         = return ()
-compileQuad (Quad.Jg l1)                          = return ()
-compileQuad (Quad.Jle l1)                         = return ()
-compileQuad (Quad.Jl l1)                          = return ()
-compileQuad (Quad.Neg r1)                         = return ()
-compileQuad (Quad.Not r1)                         = return ()
-compileQuad (Quad.MovV v r1)                      = return ()
-compileQuad (Quad.Mov r1 r2)                      = return ()
-compileQuad (Quad.Inc index r1)                   = return ()
-compileQuad (Quad.Dec index r2)                   = return ()
-compileQuad (Quad.Ret r1)                         = return ()
-compileQuad Quad.Vret                             = return ()
-compileQuad (Quad.Label l1)                       = return ()
-compileQuad (Quad.FLabel s)                       = return ()
+compileQuad (Quad.Add r1 r2 res)                  = do
+    regs <- gets mapping
+    let asmres = fromMaybe undefined (M.lookup res regs)
+    let asmr1 = fromMaybe undefined (M.lookup r1 regs)
+    let asmr2 = fromMaybe undefined (M.lookup r2 regs)
+    addInstr $ X86.Mov DWord (RegOp EAX) asmr1
+    addInstr $ X86.Add DWord (RegOp EAX) asmr2
+    addInstr $ X86.Mov DWord asmres (RegOp EAX)
+
+compileQuad (Quad.Sub r1 r2 res)                  = do
+    regs <- gets mapping
+    let asmres = fromMaybe undefined (M.lookup res regs)
+    let asmr1 = fromMaybe undefined (M.lookup r1 regs)
+    let asmr2 = fromMaybe undefined (M.lookup r2 regs)
+    addInstr $ X86.Mov DWord (RegOp EAX) asmr1
+    addInstr $ X86.Sub DWord (RegOp EAX) asmr2
+    addInstr $ X86.Mov DWord asmres (RegOp EAX)
+
+compileQuad (Quad.Div r1 r2 res)                  = do
+    regs <- gets mapping
+    let asmres = fromMaybe undefined (M.lookup res regs)
+    let asmr1 = fromMaybe undefined (M.lookup r1 regs)
+    let asmr2 = fromMaybe undefined (M.lookup r2 regs)
+    addInstr $ X86.Mov DWord (RegOp EAX) asmr1
+    addInstr Cdq
+    if isAsmValue asmr2 then do
+        addInstr $ X86.Mov DWord (RegOp EBX) asmr2
+        addInstr $ X86.Div DWord (RegOp EBX)
+    else
+        addInstr $ X86.Div DWord asmr2
+    addInstr $ X86.Mov DWord asmres (RegOp EAX)
+
+
+compileQuad (Quad.Mul r1 r2 res)                  = do
+    regs <- gets mapping
+    let asmres = fromMaybe undefined (M.lookup res regs)
+    let asmr1 = fromMaybe undefined (M.lookup r1 regs)
+    let asmr2 = fromMaybe undefined (M.lookup r2 regs)
+    addInstr $ X86.Mov DWord (RegOp EAX) asmr1
+    addInstr $ X86.Mul DWord (RegOp EAX) asmr2
+    addInstr $ X86.Mov DWord asmres (RegOp EAX)
+
+compileQuad (Quad.Mod r1 r2 res)                  = do
+    regs <- gets mapping
+    let asmres = fromMaybe undefined (M.lookup res regs)
+    let asmr1 = fromMaybe undefined (M.lookup r1 regs)
+    let asmr2 = fromMaybe undefined (M.lookup r2 regs)
+    addInstr $ X86.Mov DWord (RegOp EAX) asmr1
+    addInstr Cdq
+    if isAsmValue asmr2 then do
+        addInstr $ X86.Mov DWord (RegOp EBX) asmr2
+        addInstr $ X86.Div DWord (RegOp EBX)
+    else
+        addInstr $ X86.Div DWord asmr2
+    addInstr $ X86.Mov DWord asmres (RegOp EDX)
+
+compileQuad (Quad.Cmp r1 r2)                      = do
+    regs <- gets mapping
+    let asmr1 = fromMaybe undefined (M.lookup r1 regs)
+    let asmr2 = fromMaybe undefined (M.lookup r2 regs)
+    addInstr $ X86.Mov DWord (RegOp EAX) asmr2
+    if isAsmValue asmr1 then do
+        addInstr $ X86.Mov DWord (RegOp EBX) asmr1
+        addInstr $ X86.Cmp DWord (RegOp EBX) (RegOp EAX)
+    else
+        addInstr $ X86.Cmp DWord asmr1 (RegOp EAX)
+
+compileQuad (Quad.Jmp l1)                         =
+    addInstr $ X86.Jmp (AsmLabel $ show l1)
+
+compileQuad (Quad.Je l1)                          =
+    addInstr $ X86.Je (AsmLabel $ show l1)
+
+compileQuad (Quad.Jne l1)                         =
+    addInstr $ X86.Jne (AsmLabel $ show l1)
+
+compileQuad (Quad.Jge l1)                         =
+    addInstr $ X86.Jge (AsmLabel $ show l1)
+
+compileQuad (Quad.Jg l1)                          =
+    addInstr $ X86.Jg (AsmLabel $ show l1)
+
+compileQuad (Quad.Jle l1)                         =
+    addInstr $ X86.Jle (AsmLabel $ show l1)
+
+compileQuad (Quad.Jl l1)                          =
+    addInstr $ X86.Jl (AsmLabel $ show l1)
+
+compileQuad (Quad.Neg r1)                      = do
+    regs <- gets mapping
+    let asmr1 = fromMaybe undefined (M.lookup r1 regs)
+    addInstr $ X86.Neg DWord asmr1
+
+compileQuad (Quad.Not r1)                      = do
+    regs <- gets mapping
+    let asmr1 = fromMaybe undefined (M.lookup r1 regs)
+    addInstr $ X86.Not DWord asmr1
+
+compileQuad (Quad.MovV v r1)                      = do
+    regs <- gets mapping
+    let asmr1 = fromMaybe undefined (M.lookup r1 regs)
+    unless (isAsmValue asmr1) $
+        addInstr $ X86.Mov DWord asmr1 (ValOp (VInt $ qvalueInt v))
+
+compileQuad (Quad.Mov r1 r2)                      = do
+    regs <- gets mapping
+    let asmr1 = fromMaybe undefined (M.lookup r1 regs)
+    let asmr2 = fromMaybe undefined (M.lookup r2 regs)
+    addInstr $ X86.Mov DWord asmr1 asmr2
+
+compileQuad (Quad.Inc index r1)                   = do
+    regs <- gets mapping
+    let asmr1 = fromMaybe undefined (M.lookup r1 regs)
+    addInstr $ X86.Inc asmr1
+
+compileQuad (Quad.Dec index r1)                   = do
+    regs <- gets mapping
+    let asmr1 = fromMaybe undefined (M.lookup r1 regs)
+    addInstr $ X86.Inc asmr1
+
+compileQuad (Quad.Ret r1)                         = do
+    regs <- gets mapping
+    let asmr1 = fromMaybe undefined (M.lookup r1 regs)
+    addInstr $ X86.Mov DWord (RegOp EAX) asmr1
+    addInstr Leave
+    addInstr X86.Ret
+
+compileQuad Quad.Vret                             = do
+    addInstr Leave
+    addInstr X86.Ret
+
+compileQuad (Quad.Label l1)                       =
+    addInstr $ X86.ILabel $ AsmLabel $ show l1
+
 compileQuad (Quad.Load index res)                 = return ()
 compileQuad (Quad.LoadArg index)                  = return ()
 compileQuad (Quad.LoadIndir r1 off1 r2 off2 res)  = return ()
-compileQuad (Quad.LoadLbl l1 res)                 = return ()
+compileQuad (Quad.LoadLbl l1 res)                 = do
+    regs <- gets mapping
+    let asmres = fromMaybe undefined (M.lookup res regs)
+    addInstr $ X86.Mov DWord asmres (ValOp $ VLabel $ AsmLabel $ show l1)
+
 compileQuad (Quad.Store r1 resIndex)              = return ()
 compileQuad (Quad.StoreIndir r1 off1 r2 off2 res) = return ()
 compileQuad (Quad.Alloc index)                    = return ()
@@ -72,10 +196,22 @@ compileQuad (Quad.VCall name args r1 off1 res)    = return ()
 compileQuad (Quad.Vtab r1 t)                      = return ()
 
 ----------------------------------------------------------------------------
-allocMemory :: [Quadruple] -> AllocatorState MemoryAllocation
+allocMemory :: [Quadruple] -> AllocatorState (MemoryAllocation, Int)
 allocMemory qs = do
+    liftIO $ print "1"
     let consts = getConsts qs S.empty
-    gets allocation
+    liftIO $ print "2"
+    liftIO $ print consts
+    defineIntervals qs consts 0
+    fu <- gets fusage
+    lu <- gets lusage
+    liftIO $ print fu
+    liftIO $ print lu
+    makeAllocation qs consts 0
+    liftIO $ print "4"
+    alloc <- gets allocation
+    size <- gets allocSize
+    return $ (alloc, size)
 
 
 getConsts :: [Quadruple] -> S.Set Register -> S.Set Register
@@ -89,3 +225,55 @@ getConsts (q:qs) s =
                 getConsts qs (S.delete reg s)
             else
                 getConsts qs (S.insert reg s)
+
+defineIntervals :: [Quadruple] -> S.Set Register -> Int -> AllocatorState () --fix
+defineIntervals [] _ _ = return ()
+defineIntervals (q:qs) consts i = do
+    let all = extractAll q
+    let result = extractResult q
+    case result of
+      Nothing -> _defineIntervals all i
+      Just reg ->
+        case q of
+            MovV v _ ->
+                if S.member reg consts then do
+                    liftIO $ print "siusiak"
+                    allocate reg (ValOp (VInt $ qvalueInt v))
+                    let all1 = delete reg all
+                    _defineIntervals all1 i
+                else _defineIntervals all i
+            _ -> _defineIntervals all i
+    defineIntervals qs consts (i + 1)
+
+_defineIntervals :: [Register] -> Int -> AllocatorState ()
+_defineIntervals rs i = do
+    mapM_ (\r -> do
+        insertFirstUsage r i
+        insertLastUsage r i) rs
+
+
+makeAllocation :: [Quadruple] -> S.Set Register -> Int -> AllocatorState ()
+makeAllocation [] _ _ = return ()
+makeAllocation (q:qs) consts i = do
+    let all = extractAll q
+    fu <- gets fusage
+    lu <- gets lusage
+    mapM_ (\r -> do
+        st1 <- get
+        case M.lookup r fu of
+            Nothing -> return ()
+            Just n  -> when (i == n) (do
+                when (null (memoryPool st1)) (do
+                    off <- getStackOffset
+                    addToPool $ MemOp $ RegOff EBP off)
+                st3 <- get
+                allocate r (head $ memoryPool st3)
+                shrinkPool
+                    )
+        st2 <- get
+        case M.lookup r lu of
+          Nothing -> return ()
+          Just n  -> when (i == n) (do
+                maybe undefined addToPool (M.lookup r (allocation st2)))
+            ) all
+    makeAllocation qs consts (i + 1)
