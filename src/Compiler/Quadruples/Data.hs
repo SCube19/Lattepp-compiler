@@ -256,7 +256,7 @@ storeEnv changedEnv action = do
   return result
 
 
-data Register = Register Int Bool
+data Register = Register Int Bool deriving (Eq, Ord)
 
 stringReg :: Register -> Register
 stringReg (Register i _) = Register i True
@@ -329,11 +329,12 @@ data Quadruple =
     Mod Register Register Register |
     Cmp Register Register |
     Jmp QLabel |
-    Je QLabel QLabel |
-    Jge QLabel QLabel |
-    Jg QLabel QLabel |
-    Jle QLabel QLabel |
-    Jl QLabel QLabel |
+    Je QLabel |
+    Jne QLabel |
+    Jge QLabel |
+    Jg QLabel |
+    Jle QLabel |
+    Jl QLabel |
     Neg Register | -- consider one register
     Not Register | -- consider one register
     MovV QValue Register |
@@ -356,6 +357,75 @@ data Quadruple =
     Vtab Register Type
 
 
+extractResult :: Quadruple -> Maybe Register
+extractResult (Add _ _ r)            = Just r
+extractResult (Sub _ _ r)            = Just r
+extractResult (Div _ _ r)            = Just r
+extractResult (Mul _ _ r)            = Just r
+extractResult (Mod _ _ r)            = Just r
+extractResult (Cmp _ _)              = Nothing
+extractResult (Jmp _)                = Nothing
+extractResult (Je _)                 = Nothing
+extractResult (Jne _)                = Nothing
+extractResult (Jge _)                = Nothing
+extractResult (Jg _)                 = Nothing
+extractResult (Jle _)                = Nothing
+extractResult (Jl _)                 = Nothing
+extractResult (Neg r)                = Just r
+extractResult (Not r)                = Just r
+extractResult (MovV _ r)             = Just r
+extractResult (Mov _ r)              = Just r
+extractResult (Inc _ r)              = Just r
+extractResult (Dec _ r)              = Just r
+extractResult (Ret _)                = Nothing
+extractResult Vret                   = Nothing
+extractResult (Label _)              = Nothing
+extractResult (FLabel _)             = Nothing
+extractResult (Load _ r)             = Just r
+extractResult (LoadArg _)            = Nothing
+extractResult (LoadIndir _ _ _ _ r)  = Just r
+extractResult (LoadLbl _ r)          = Just r
+extractResult (Store _ _)            = Nothing
+extractResult (StoreIndir _ _ _ _ r) = Just r
+extractResult (Alloc _)              = Nothing
+extractResult (Call _ _ r)           = Just r
+extractResult (VCall _ _ _ _ r)      = Just r
+extractResult (Vtab _ _)             = Nothing
+
+extractAll :: Quadruple -> [Register]
+extractAll (Add r1 r2 r3)            = [r1, r2, r3]
+extractAll (Sub r1 r2 r3)            = [r1, r2, r3]
+extractAll (Div r1 r2 r3)            = [r1, r2, r3]
+extractAll (Mul r1 r2 r3)            = [r1, r2, r3]
+extractAll (Mod r1 r2 r3)            = [r1, r2, r3]
+extractAll (Cmp r1 r2)               = [r1, r2]
+extractAll (Jmp _)                   = []
+extractAll (Je _)                    = []
+extractAll (Jne _)                   = []
+extractAll (Jge _)                   = []
+extractAll (Jg _)                    = []
+extractAll (Jle _)                   = []
+extractAll (Jl _)                    = []
+extractAll (Neg r1)                  = [r1]
+extractAll (Not r1)                  = [r1]
+extractAll (MovV _ r1)               = [r1]
+extractAll (Mov r1 r2)               = [r1, r2]
+extractAll (Inc _ r1)                = [r1]
+extractAll (Dec _ r1)                = [r1]
+extractAll (Ret r1)                  = [r1]
+extractAll Vret                      = []
+extractAll (Label _)                 = []
+extractAll (FLabel _)                = []
+extractAll (Load _ r1)               = [r1]
+extractAll (LoadArg _)               = []
+extractAll (LoadIndir r1 _ r2 _ r3)  = [r1, r2, r3]
+extractAll (LoadLbl _ r1)            = [r1]
+extractAll (Store r1 _)              = [r1]
+extractAll (StoreIndir r1 _ r2 _ r3) = [r1, r2, r3]
+extractAll (Alloc _)                 = []
+extractAll (Call _ rs r1)            = r1 : rs
+extractAll (VCall _ rs r1 _ r2)      = r1 : r2 : rs
+extractAll (Vtab r1 _)               = [r1]
 
 instance Show QLabel where
     show (QLabel i) = "L" ++ show i ++ ":"
@@ -396,11 +466,12 @@ instance Show Quadruple where
     show (Mod r1 r2 result) = show result ++ " = " ++ show r1 ++ "%" ++ show r2 ++ "\n"
     show (Cmp r1 r2) = "cmp " ++ show r1 ++ ", " ++ show r2 ++ "\n"
     show (Jmp label) = "jmp " ++ show label ++ "\n"
-    show (Je l1 l2) = "je " ++ show l1 ++ " else " ++ show l2 ++ "\n"
-    show (Jge l1 l2) = "jge " ++ show l1 ++ " else " ++ show l2 ++ "\n"
-    show (Jg l1 l2) = "jg " ++ show l1 ++ " else " ++ show l2 ++ "\n"
-    show (Jle l1 l2) = "jle " ++ show l1 ++ " else " ++ show l2 ++ "\n"
-    show (Jl l1 l2) = "jl " ++ show l1 ++ " else " ++ show l2 ++ "\n"
+    show (Je l1) = "je " ++ show l1 ++ "\n"
+    show (Jne l1) = "jne " ++ show l1 ++ "\n"
+    show (Jge l1) = "jge " ++ show l1 ++ "\n"
+    show (Jg l1) = "jg " ++ show l1 ++ "\n"
+    show (Jle l1) = "jle " ++ show l1 ++ "\n"
+    show (Jl l1) = "jl " ++ show l1 ++ "\n"
     show (Neg r1) = "neg " ++ show r1 ++ "\n"
     show (Not r1) = "not " ++ show r1 ++ "\n"
     show (MovV val r1) = "mov " ++ show r1 ++ ", " ++ show val ++ "\n"

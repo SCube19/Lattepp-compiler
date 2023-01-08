@@ -110,39 +110,32 @@ quadruplizeStmt (Abs.Ret pos expr)              = do
 quadruplizeStmt (VRet pos)                      = addQuad Vret
 
 quadruplizeStmt (Cond pos expr stmt)            = do
-    trueLabel <- getLabel
     falseLabel <- getLabel
     ifReg <- quadruplizeExpr expr
     zero <- getRegister
     addQuad $ MovV (QInt 0) zero
     addQuad $ Cmp ifReg zero
-    addQuad $ Je falseLabel trueLabel
-    addQuad $ Label trueLabel
+    addQuad $ Je falseLabel
     quadruplizeBlock (Block Nothing [stmt])
     addQuad $ Label falseLabel
 
 quadruplizeStmt (CondElse pos expr stmt1 stmt2) = do
-    ifLabel <- getLabel
     elseLabel <- getLabel
     afterLabel <- getLabel
     ifReg <- quadruplizeExpr expr
     zero <- getRegister
     addQuad $ MovV (QInt 0) zero
     addQuad $ Cmp ifReg zero
-    addQuad $ Je elseLabel ifLabel
-    addQuad $ Label ifLabel
+    addQuad $ Je elseLabel
     quadruplizeBlock (Block Nothing [stmt1])
     addQuad $ Jmp afterLabel
     addQuad $ Label elseLabel
     quadruplizeBlock (Block Nothing [stmt2])
     addQuad $ Label afterLabel
 
-
-
 quadruplizeStmt (While pos expr stmt)           = do
     bodyLabel <- getLabel
     condLabel <- getLabel
-    afterLabel <- getLabel
     zero <- getRegister
     addQuad $ Jmp condLabel
     addQuad $ Label bodyLabel
@@ -151,8 +144,7 @@ quadruplizeStmt (While pos expr stmt)           = do
     condReg <- quadruplizeExpr expr
     addQuad $ MovV (QInt 0) zero
     addQuad $ Cmp condReg zero
-    addQuad $ Je afterLabel bodyLabel
-    addQuad $ Label afterLabel
+    addQuad $ Jne bodyLabel
 
 quadruplizeStmt (For pos t ident1 ident2 stmt)  = return ()
 
@@ -267,18 +259,16 @@ quadruplizeExpr (ERel pos expr1 op expr2) = do
     if isStringReg r1 then do
         quadruplizeStringRel reg r1 r2 op
     else do
-        falsy <- getLabel
         truey <- getLabel
         afterLabel <- getLabel
         addQuad $ Cmp r1 r2
         case op of
-            LTH _ -> addQuad $ Jl truey falsy
-            LE _  -> addQuad $ Jle truey falsy
-            GTH _ -> addQuad $ Jg truey falsy
-            GE _  -> addQuad $ Jge truey falsy
-            EQU _ -> addQuad $ Je truey falsy
-            NE _  ->addQuad $ Je falsy truey
-        addQuad $ Label falsy
+            LTH _ -> addQuad $ Jl truey
+            LE _  -> addQuad $ Jle truey
+            GTH _ -> addQuad $ Jg truey
+            GE _  -> addQuad $ Jge truey
+            EQU _ -> addQuad $ Je truey
+            NE _  -> addQuad $ Jne truey
         addQuad $ MovV (QBool False) reg
         addQuad $ Jmp afterLabel
         addQuad $ Label truey
@@ -288,7 +278,6 @@ quadruplizeExpr (ERel pos expr1 op expr2) = do
 
 quadruplizeExpr (EAnd pos expr1 expr2)    = do
     reg <- getRegister
-    shortCircuit <- getLabel
     falsy <- getLabel
     truey <- getLabel
     afterLabel <- getLabel
@@ -296,13 +285,12 @@ quadruplizeExpr (EAnd pos expr1 expr2)    = do
     f <- getRegister
     addQuad $ MovV (QBool False) f
     addQuad $ Cmp left f
-    addQuad $ Je falsy shortCircuit
-    addQuad $ Label shortCircuit
+    addQuad $ Je falsy
     right <- quadruplizeExpr expr2
     f2 <- getRegister
     addQuad $ MovV (QBool False) f2
     addQuad $ Cmp right f2
-    addQuad $ Je falsy truey
+    addQuad $ Jne truey
     addQuad $ Label falsy
     addQuad $ MovV (QBool False) reg
     addQuad $ Jmp afterLabel
@@ -314,7 +302,6 @@ quadruplizeExpr (EAnd pos expr1 expr2)    = do
 
 quadruplizeExpr (EOr pos expr1 expr2)     = do
     reg <- getRegister
-    shortCircuit <- getLabel
     falsy <- getLabel
     truey <- getLabel
     afterLabel <- getLabel
@@ -322,13 +309,12 @@ quadruplizeExpr (EOr pos expr1 expr2)     = do
     f <- getRegister
     addQuad $ MovV (QBool False) f
     addQuad $ Cmp left f
-    addQuad $ Je shortCircuit truey
-    addQuad $ Label shortCircuit
+    addQuad $ Jne truey
     right <- quadruplizeExpr expr2
     f2 <- getRegister
     addQuad $ MovV (QBool False) f2
     addQuad $ Cmp right f2
-    addQuad $ Je falsy truey
+    addQuad $ Jne truey
     addQuad $ Label falsy
     addQuad $ MovV (QBool False) reg
     addQuad $ Jmp afterLabel
