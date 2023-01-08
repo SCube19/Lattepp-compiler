@@ -1,5 +1,5 @@
 module Compiler.Data where
-import           Compiler.Quadruples.Data   (Register)
+import           Compiler.Quadruples.Data   (QLabel (QLabel), Register)
 import           Control.Monad.Trans.Except (ExceptT)
 import           Control.Monad.Trans.State  (StateT, gets, modify)
 import           Data.List                  (intercalate)
@@ -43,6 +43,12 @@ resetAllocation = modify (\s -> CompilerS {
 })
 
 newtype AsmLabel = AsmLabel String
+
+labelref :: QLabel -> String
+labelref (QLabel l) = "L" ++ show l
+
+qtoasmlbl :: QLabel -> AsmLabel
+qtoasmlbl (QLabel l) = AsmLabel $ "L" ++ show l
 
 type Offset = Int
 
@@ -97,8 +103,8 @@ data AsmInstr =
     Jle AsmLabel |
     Jg AsmLabel |
     Jge AsmLabel |
-    Inc AsmOperand |
-    Dec AsmOperand |
+    Inc OpSize AsmOperand |
+    Dec OpSize AsmOperand |
     Lea OpSize AsmOperand AsmOperand |
     Leave |
     Mov OpSize AsmOperand AsmOperand |
@@ -155,7 +161,7 @@ instance Show AsmInstr where
     show (Mul s o1 o2) = "\timul " ++ show s ++ " " ++ show o1 ++ ", " ++ show o2 ++ "\n"
     show (Div s o1)    = "\tidiv " ++ show s ++ " " ++ show o1 ++ "\n"
     show (Call trgt)   = "\tcall " ++ show trgt ++ "\n"
-    show Cdq           = "\tcdq"
+    show Cdq           = "\tcdq\n"
     show (Cmp s o1 o2) = "\tcmp " ++ show s ++ " " ++ show o1 ++ ", " ++ show o2 ++ "\n"
     show (ILabel l1)   = show l1 ++ ":\n"
     show (Jmp l1)      = "\tjmp " ++ show l1 ++ "\n"
@@ -165,8 +171,8 @@ instance Show AsmInstr where
     show (Jle l1)      = "\tjle " ++ show l1 ++ "\n"
     show (Jg l1)       = "\tjg " ++ show l1 ++ "\n"
     show (Jge l1)      = "\tjge " ++ show l1 ++ "\n"
-    show (Inc o1)      = "\tinc " ++ show o1 ++ "\n"
-    show (Dec o1)      = "\tdec " ++ show o1 ++ "\n"
+    show (Inc s o1)      = "\tinc " ++ show s ++ " " ++ show o1 ++ "\n"
+    show (Dec s o1)      = "\tdec " ++ show s ++ " " ++ show o1 ++ "\n"
     show (Lea s o1 o2) = "\tlea " ++ show s ++ " " ++ show o1 ++ ", " ++ show o2 ++ "\n"
     show Leave         = "\tleave\n"
     show (Mov s o1 o2) = "\tmov " ++ show s ++ " " ++ show o1 ++ ", " ++ show o2 ++ "\n"
@@ -288,3 +294,4 @@ shrinkPool = modify (\s ->
         fusage = fusage s,
         lusage = lusage s
     })
+

@@ -1,9 +1,9 @@
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #define TRUE ~0
 
-extern void printInt(int v)
+extern void printInt(int32_t v)
 {
     printf("%d\n", v);
 }
@@ -14,35 +14,24 @@ extern void printString(char *v)
 }
 extern void error()
 {
-    fprintf(stderr, "runtime error");
+    fprintf(stderr, "runtime error\n");
     exit(1);
 }
 extern int readInt()
 {
-    int a;
-    if (scanf("%d", &a) != 0)
+    int32_t a;
+    if (scanf("%d", &a) == 0)
         error();
+    getchar();
     return a;
-}
-
-static char *_readString(char *original, char input, int *end, int *len)
-{
-    if (*end == *len)
-    {
-        (*len) = (*len) * 2 + 1;
-        original = realloc(original, *len);
-    }
-    original[*end] = input;
-    (*end)++;
-    return original;
 }
 
 extern char *readString()
 {
-    int input;
+    int32_t input;
     char *str = NULL;
-    int end = 0;
-    int len = 0;
+    int32_t end = 0;
+    int32_t len = 0;
     while ((input = getchar()) != '\n')
     {
         if (end == len)
@@ -65,10 +54,10 @@ extern char *__concat(char *str1, char *str2)
     else if (str2 == NULL)
         return str1;
 
-    int len1 = strlen(str1);
-    int len2 = strlen(str2);
+    int32_t len1 = strlen(str1);
+    int32_t len2 = strlen(str2);
 
-    int buffsize = len1 + len2 + 1;
+    int32_t buffsize = len1 + len2 + 1;
     char *cnc = malloc(sizeof(char) * buffsize);
     memcpy(cnc, str1, len1);
     memcpy(cnc + len1, str2, len2);

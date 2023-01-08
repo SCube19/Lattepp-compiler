@@ -23,9 +23,10 @@ for file in $1/*.lat; do
     name="${file##*/}"
     noExt="${name%.*}"
     printf "\n${BLUE}TESTING: $noExt ${NC}\n"
-    res="$(./latc $file 2>&1)"
+    res="$(./latc_ARCH $file 2>&1)"
     if [[ $res =~ "OK" ]]; then
         cpres="$(cp $fileNoExt.output ./tester/$noExt.output)"
+        cpres="$(cp $fileNoExt ./tester/$noExt)"
         if [[ -f "$fileNoExt.input" ]]; then
             cpres="$(cp $fileNoExt.input ./tester/$noExt.input)"
             sed 's/\r$//' "./tester/$noExt.input" > "./tester/tmp.input"

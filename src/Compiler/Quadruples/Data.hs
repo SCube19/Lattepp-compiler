@@ -278,7 +278,13 @@ storeEnv changedEnv action = do
   return result
 
 
-data Register = Register Int Bool deriving (Eq, Ord)
+data Register = Register Int Bool
+
+instance Eq Register where
+    (==) (Register a _) (Register b _) = a == b
+
+instance Ord Register where
+    compare (Register a _) (Register b _) = compare a b
 
 stringReg :: Register -> Register
 stringReg (Register i _) = Register i True
@@ -362,8 +368,8 @@ data Quadruple =
     Not Register |
     MovV QValue Register |
     Mov Register Register |
-    Inc QIndex Register |
-    Dec QIndex Register |
+    Inc QIndex |
+    Dec QIndex |
     Ret Register |
     Vret |
     Label QLabel |
@@ -398,8 +404,8 @@ extractResult (Neg r)                = Just r
 extractResult (Not r)                = Just r
 extractResult (MovV _ r)             = Just r
 extractResult (Mov _ r)              = Just r
-extractResult (Inc _ r)              = Just r
-extractResult (Dec _ r)              = Just r
+extractResult (Inc _)                = Nothing
+extractResult (Dec _)                = Nothing
 extractResult (Ret _)                = Nothing
 extractResult Vret                   = Nothing
 extractResult (Label _)              = Nothing
@@ -433,8 +439,8 @@ extractAll (Neg r1)                  = [r1]
 extractAll (Not r1)                  = [r1]
 extractAll (MovV _ r1)               = [r1]
 extractAll (Mov r1 r2)               = [r1, r2]
-extractAll (Inc _ r1)                = [r1]
-extractAll (Dec _ r1)                = [r1]
+extractAll (Inc _ )                  = []
+extractAll (Dec _ )                  = []
 extractAll (Ret r1)                  = [r1]
 extractAll Vret                      = []
 extractAll (Label _)                 = []
@@ -499,8 +505,8 @@ instance Show Quadruple where
     show (Not r1) = "not " ++ show r1 ++ "\n"
     show (MovV val r1) = "mov " ++ show r1 ++ ", " ++ show val ++ "\n"
     show (Mov r1 r2) = "mov " ++ show r2 ++ ", " ++ show r1 ++ "\n"
-    show (Inc i1 r1) = "inc " ++ show i1 ++ ", " ++ show r1 ++ "\n"
-    show (Dec i1 r1) = "dec " ++ show i1 ++ ", " ++ show r1 ++ "\n"
+    show (Inc i1) = "inc " ++ show i1 ++ "\n"
+    show (Dec i1) = "dec " ++ show i1 ++ "\n"
     show (Ret r1) = "ret " ++ show r1 ++ "\n"
     show Vret = "ret" ++ "\n"
     show (Label label) = show label ++ "\n"

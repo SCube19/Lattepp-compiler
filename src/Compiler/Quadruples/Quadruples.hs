@@ -18,6 +18,7 @@ quadruplize p@(Program _ defs) = do
     modify (`setPreprocessing` preprocessed)
     mapM_ quadruplizeTopDef defs
     prog <- gets qprogram
+    --liftIO $ print $ prog
     gets qprogram
 
 
@@ -75,25 +76,23 @@ quadruplizeStmt (Ass pos ident expr)            = do
       AttrId _ ex ex' -> undefined
 
 quadruplizeStmt (Incr pos ident)                = do
-    res <- getRegister
     st <- gets localStore
     case ident of
       Id _ id -> case M.lookup id (varToMem st) of
                     Nothing -> undefined
                     Just mem -> do
-                        addQuad $ Inc mem res
+                        addQuad $ Inc mem
       ArrId ma id ex -> undefined
       AttrId ma ex ex' -> undefined
 
 
 quadruplizeStmt (Decr pos ident)                = do
-    res <- getRegister
     st <- gets localStore
     case ident of
       Id _ id -> case M.lookup id (varToMem st) of
                     Nothing -> undefined
                     Just mem -> do
-                        addQuad $ Dec mem res
+                        addQuad $ Dec mem
       ArrId ma id ex -> undefined
       AttrId ma ex ex' -> undefined
 

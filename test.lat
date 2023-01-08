@@ -1,4 +1,0 @@
-int main() {
-  int x = 10 + 22, j = 78;
-  printInt(x);
-}

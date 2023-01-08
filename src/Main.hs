@@ -37,10 +37,10 @@ dump :: String -> String -> IO ()
 dump file asm = do
   let name = replaceExtension file "s"
   let object = replaceExtension file "o"
-  let binary = takeDirectory file ++ takeBaseName file
+  let binary = takeDirectory file ++ "/" ++ takeBaseName file
   writeFile name asm
-  callCommand $ "nasm -f elf " ++ name
-  callCommand $ "gcc -g -O0 -m32 lib/runtime.o " ++ object ++ " -o " ++ binary
+  callCommand $ "nasm -g -f elf32 " ++ name
+  callCommand $ "gcc -g -m32 -no-pie lib/runtime.o " ++ object ++ " -o " ++ binary
   callCommand $ "rm " ++ object
 
 main :: IO ()
