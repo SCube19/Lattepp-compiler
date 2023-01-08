@@ -11,11 +11,11 @@ import           Data.List                      (delete)
 import qualified Data.Map                       as M
 import           Data.Maybe                     (fromMaybe)
 import qualified Data.Set                       as S
-import           Syntax.AbsLattepp              (Program)
+import           Syntax.AbsLattepp              (Program, Program' (Program))
 
 compile :: Program -> ExceptT String IO String
-compile p =  do
-    quads <- evalStateT (quadruplize p) initQuadruplesS
+compile p@(Program _ defs) =  do
+    quads <- evalStateT (quadruplize p) (initQuadruplesS defs)
     asm <- evalStateT (compileQuads quads) initCompilerS
     return $ concatMap show asm
 
@@ -30,9 +30,9 @@ compileQuads p = do
     addInstr $ Extern "readInt"
     addInstr $ Extern "readString"
     addInstr $ Extern "error"
-    addInstr $ Extern "1__concat"
-    addInstr $ Extern "1__equals"
-    addInstr $ Extern "1__notequals"
+    addInstr $ Extern "__concat"
+    addInstr $ Extern "__equals"
+    addInstr $ Extern "__notequals"
     mapM_ compileQuadsFun (funcs p)
     gets instructions
 
@@ -43,6 +43,8 @@ compileQuadsFun f = do
     (mapping, size) <- lift $ evalStateT (allocMemory (body f)) (initAllocatorS (localcount f))
     setAllocation mapping (size + localcount f)
     addInstr $ X86.ILabel $ AsmLabel (fident f)
+    addInstr $ Push DWord (RegOp EBP)
+    addInstr $ X86.Mov DWord (RegOp EBP) (RegOp ESP)
     mapM_ compileQuad (body f)
 
 compileQuad :: Quadruple -> CompilerState ()
@@ -180,18 +182,49 @@ compileQuad Quad.Vret                             = do
 compileQuad (Quad.Label l1)                       =
     addInstr $ X86.ILabel $ AsmLabel $ show l1
 
-compileQuad (Quad.Load index res)                 = return ()
-compileQuad (Quad.LoadArg index)                  = return ()
+compileQuad (Quad.Load (QIndex i _) res)                 = do
+    regs <- gets mapping
+    let asmres = fromMaybe undefined (M.lookup res regs)
+    addInstr $ X86.Mov DWord (RegOp EAX) (MemOp $ RegOff EBP (-4 * (i + 1)))
+    addInstr $ X86.Mov DWord asmres (RegOp EAX)
+
+compileQuad (Quad.LoadArg (QIndex i _))                  = do
+    addInstr $ X86.Mov DWord (RegOp EAX) (MemOp $ RegOff EBP (4 * (i + 2)))
+    addInstr $ X86.Mov DWord (MemOp $ RegOff EBP (-4 * (i + 1))) (RegOp EAX)
+
+
 compileQuad (Quad.LoadIndir r1 off1 r2 off2 res)  = return ()
 compileQuad (Quad.LoadLbl l1 res)                 = do
     regs <- gets mapping
     let asmres = fromMaybe undefined (M.lookup res regs)
     addInstr $ X86.Mov DWord asmres (ValOp $ VLabel $ AsmLabel $ show l1)
 
-compileQuad (Quad.Store r1 resIndex)              = return ()
+compileQuad (Quad.Store r1 (QIndex i _))              = do
+    regs <- gets mapping
+    let asmr1 = fromMaybe undefined (M.lookup r1 regs)
+    addInstr $ X86.Mov DWord (RegOp EAX) asmr1
+    addInstr $ X86.Mov DWord (MemOp $ RegOff EBP (-4 * (i + 1))) (RegOp EAX)
+
 compileQuad (Quad.StoreIndir r1 off1 r2 off2 res) = return ()
 compileQuad (Quad.Alloc index)                    = return ()
-compileQuad (Quad.Call name args res)             = return ()
+compileQuad (Quad.Call name args res)             = do
+    regs <- gets mapping
+    let asmres = fromMaybe undefined (M.lookup res regs)
+    mapM_ (\r -> do
+        let asmr = fromMaybe undefined (M.lookup r regs)
+        addInstr $ Push DWord asmr) (reverse args)
+    addInstr $ X86.Call (CLabel $ AsmLabel name)
+    addInstr $ X86.Add DWord (RegOp EBP) (ValOp $ VInt (4 * length args))
+    addInstr $ X86.Mov DWord asmres (RegOp EAX)
+
+compileQuad (Quad.VoidCall name args)             = do
+    regs <- gets mapping
+    mapM_ (\r -> do
+        let asmr = fromMaybe undefined (M.lookup r regs)
+        addInstr $ Push DWord asmr) (reverse args)
+    addInstr $ X86.Call (CLabel $ AsmLabel name)
+    addInstr $ X86.Add DWord (RegOp EBP) (ValOp $ VInt (4 * length args))
+
 compileQuad (Quad.VCall name args r1 off1 res)    = return ()
 compileQuad (Quad.Vtab r1 t)                      = return ()
 
@@ -250,7 +283,6 @@ _defineIntervals rs i = do
     mapM_ (\r -> do
         insertFirstUsage r i
         insertLastUsage r i) rs
-
 
 makeAllocation :: [Quadruple] -> S.Set Register -> Int -> AllocatorState ()
 makeAllocation [] _ _ = return ()

@@ -1,6 +1,7 @@
 import           Compiler.Compiler                 (compile)
 import           Control.Monad.IO.Class            (MonadIO (liftIO))
 import           Control.Monad.Trans.Except        (ExceptT, runExceptT, throwE)
+import           Data.Either                       (either)
 import           Optimizer.Optimizer               (cleanDeadCode, optimize)
 import           Syntax.AbsLattepp                 (Program)
 import           Syntax.LexLattepp                 (tokens)
@@ -35,6 +36,6 @@ main = do
     [file] -> do
       program <- readFile file
       result <- runExceptT $ runProgram program
-      either exitError putStrLn result
+      either exitError (writeFile "result.asm") result
     _ -> exitFailure
 

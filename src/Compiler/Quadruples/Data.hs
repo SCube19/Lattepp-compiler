@@ -6,8 +6,10 @@ import           Data.List                   (intercalate)
 import qualified Data.Map                    as M
 import           Data.Maybe                  (fromJust, fromMaybe, isNothing)
 import           Debug.Trace                 (trace)
-import           Syntax.AbsLattepp           (Ident, Program, Type,
+import           Syntax.AbsLattepp           (Ident (Ident), Program, TopDef,
+                                              TopDef' (FnDef), Type,
                                               Type' (ObjectType))
+import           Utils                       (Raw (raw), rawStr)
 
 type QuadruplesState = StateT QuadrupleS (ExceptT String IO)
 data QuadrupleS = QuadrupleS {
@@ -27,14 +29,14 @@ data LocalStore = LocalStore {
 
 initLocalStore :: Int -> LocalStore
 initLocalStore size = LocalStore {
-    freeMem = map QIndex [0..size - 1],
+    freeMem = map (`QIndex` False) [0..size - 1],
     varToMem = M.empty
 }
 
-store :: Ident -> QuadruplesState QIndex
-store i = do
+store :: Ident -> Type -> QuadruplesState QIndex
+store i t = do
     s <- gets localStore
-    let (newS, mem) = _store s i
+    let (newS, mem) = _store s i t
     modify (`setStore` newS)
     return mem
 
@@ -43,14 +45,14 @@ free i = do
     s <- gets localStore
     modify (`setStore` _free s i)
 
-_store :: LocalStore -> Ident -> (LocalStore, QIndex)
-_store s i =
+_store :: LocalStore -> Ident -> Type -> (LocalStore, QIndex)
+_store s i t =
     case freeMem s of
         [] -> undefined
-        (x:xs) ->
+        (x@(QIndex ind str):xs) ->
             (LocalStore {
             freeMem = xs,
-            varToMem = M.insert i x (varToMem s)
+            varToMem = M.insert i (QIndex ind (raw t == rawStr))(varToMem s)
     }, x)
 
 _free :: LocalStore -> Ident -> LocalStore
@@ -61,12 +63,12 @@ _free s i =
     varToMem = M.delete i (varToMem s)
 }
 
-initQuadruplesS :: QuadrupleS
-initQuadruplesS = QuadrupleS {
+initQuadruplesS :: [TopDef] -> QuadrupleS
+initQuadruplesS defs = QuadrupleS {
     preprocessing = Pre.initPreprocessS,
     qprogram = QProgram {
         classes = M.empty,
-        funcs = M.empty,
+        funcs = M.fromList $ gatherFuncs defs [],
         strings = M.empty
     },
     maxLocals = 0,
@@ -75,6 +77,12 @@ initQuadruplesS = QuadrupleS {
     nextLabel = QLabel 0,
     localStore = LocalStore {freeMem = [], varToMem = M.empty}
 }
+
+gatherFuncs :: [TopDef] -> [(String, QFun)] -> [(String, QFun)]
+gatherFuncs [] fs = fs
+gatherFuncs (def:defs) fs = case def of
+  FnDef _ t (Ident id) _ _ -> gatherFuncs defs ((id, QFun {fident = id, ret = t, localcount = 0, body = []}):fs)
+  _ -> gatherFuncs defs fs
 
 setStore :: QuadrupleS -> LocalStore -> QuadrupleS
 setStore s ls = QuadrupleS {
@@ -178,6 +186,7 @@ __addQuad p mf q =
     classes = classes p,
     funcs = M.insert f (QFun {
         fident     = fident lkpf,
+        ret        = ret lkpf,
         localcount = localcount lkpf,
         body       = body lkpf ++ [q]}) (funcs p),
     strings = strings p
@@ -272,6 +281,7 @@ data QProgram = QProgram {
 
 data QFun = QFun {
     fident     :: String,
+    ret        :: Type,
     localcount :: Int,
     body       :: [Quadruple]
 }
@@ -303,7 +313,7 @@ preFieldsToQFields fs = map (\(f, s) -> QCField {fieldName = f, fieldSize = 4}) 
 
 newtype QLabel = QLabel Int deriving (Eq, Ord)
 
-newtype QIndex = QIndex Int
+data QIndex = QIndex Int Bool
 
 newtype Offset = Offset Int
 
@@ -352,6 +362,7 @@ data Quadruple =
     StoreIndir Register Offset Register Offset Register |
     Alloc QIndex |
     Call String [Register] Register |
+    VoidCall String [Register] |
     VCall String [Register] Register Offset Register |
     Vtab Register Type
 
@@ -387,6 +398,7 @@ extractResult (Store _ _)            = Nothing
 extractResult (StoreIndir _ _ _ _ r) = Just r
 extractResult (Alloc _)              = Nothing
 extractResult (Call _ _ r)           = Just r
+extractResult (VoidCall _ _)         = Nothing
 extractResult (VCall _ _ _ _ r)      = Just r
 extractResult (Vtab _ _)             = Nothing
 
@@ -421,6 +433,7 @@ extractAll (Store r1 _)              = [r1]
 extractAll (StoreIndir r1 _ r2 _ r3) = [r1, r2, r3]
 extractAll (Alloc _)                 = []
 extractAll (Call _ rs r1)            = r1 : rs
+extractAll (VoidCall _ rs)           = rs
 extractAll (VCall _ rs r1 _ r2)      = r1 : r2 : rs
 extractAll (Vtab r1 _)               = [r1]
 
@@ -428,7 +441,7 @@ instance Show QLabel where
     show (QLabel i) = "L" ++ show i ++ ":"
 
 instance Show QIndex where
-    show (QIndex i) = "i" ++ show i
+    show (QIndex i _) = "i" ++ show i
 
 instance Show Offset where
     show (Offset o) = show o
@@ -486,6 +499,7 @@ instance Show Quadruple where
     show (StoreIndir addr offset1 offsetreg offset2 value) = "store " ++ "[" ++ show addr ++ "+" ++ show offset1 ++ "+" ++ show offsetreg ++ "*" ++ show offset2 ++ "], " ++ show value ++ "\n"
     show (Alloc index) = "alloc " ++ show index ++ "\n"
     show (Call label args result) = show result ++ " = call " ++ label ++ "(" ++ intercalate "," (map show args) ++ ")" ++ "\n"
+    show (VoidCall label args) = "voidcall " ++ label ++ "(" ++ intercalate "," (map show args) ++ ")" ++ "\n"
     show (VCall label args result _ _) = show result ++ " = vcall " ++ label ++ "(" ++ intercalate "," (map show args)++ ")" ++ "\n"
     show (Vtab r1 type1) = "vt " ++ show type1 ++ ", " ++ show r1 ++ "\n"
 

@@ -1,5 +1,6 @@
 int main() {
-  boolean x = true;
+  x();
   return 0;
 }
-
+void x() {
+}

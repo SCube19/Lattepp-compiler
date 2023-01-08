@@ -117,8 +117,8 @@ instance Show AsmLabel where
     show (AsmLabel l) = l
 
 instance Show AsmValue where
-    show (VInt v)   = show v
-    show (VLabel l) = show l
+    show (VInt v)              = show v
+    show (VLabel (AsmLabel l)) = filter (/= ':') l
 
 instance Show AsmRegister where
     show EAX = "eax"
@@ -167,19 +167,19 @@ instance Show AsmInstr where
     show (Inc o1)      = "\tinc " ++ show o1 ++ "\n"
     show (Dec o1)      = "\tdec " ++ show o1 ++ "\n"
     show (Lea s o1 o2) = "\tlea " ++ show s ++ " " ++ show o1 ++ ", " ++ show o2 ++ "\n"
-    show Leave         = "\tleave"
+    show Leave         = "\tleave\n"
     show (Mov s o1 o2) = "\tmov " ++ show s ++ " " ++ show o1 ++ ", " ++ show o2 ++ "\n"
     show (Neg s o1)    = "\tneg " ++ show s ++ " " ++ show o1 ++ "\n"
     show (Not s o1)    = "\tnot " ++ show s ++ " " ++ show o1 ++ "\n"
     show (Push s o1)   = "\tpush " ++ show s ++ " " ++ show o1 ++ "\n"
-    show Ret           = "\tret"
+    show Ret           = "\tret\n"
     show (Clear s o1)  = "\txor " ++ show s ++ " " ++ show o1 ++ ", " ++ show o1 ++ "\n"
     show (Section s)   = "section ." ++ s ++ "\n"
     show (Extern s)    = "extern " ++ s ++ "\n"
     show (Text s)      = "text " ++ s ++ "\n"
     show (Global s)    = "global " ++ s ++ "\n"
-    show (DataString l s) = l ++ " db '" ++ s ++ "', 0\n"
-    show (DataBuffer l size) = l ++
+    show (DataString l s) = "\t" ++ l ++ " db '" ++ s ++ "', 0\n"
+    show (DataBuffer l size) = "\t" ++ l ++
         if size `mod` 4 == 0 then " dd " else if even size then " dw " else " db " ++
         if size `mod` 4 == 0 then intercalate "," (replicate (div size 4) "0")
         else if even size then intercalate "," (replicate (div size 2) "0")

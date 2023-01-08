@@ -10,8 +10,7 @@ import           Control.Monad.State            (MonadIO (liftIO),
 import           Control.Monad.Trans.Except     (ExceptT)
 import qualified Data.Map                       as M
 import           Syntax.AbsLattepp              as Abs
-import           Utils                          (Raw (raw), rawVoid)
-
+import           Utils                          (Raw (raw), rawStr, rawVoid)
 
 quadruplize :: Program -> QuadruplesState QProgram
 quadruplize p@(Program _ defs) = do
@@ -28,14 +27,10 @@ quadruplizeTopDef (FnDef pos ret (Ident ident) args block)  = do
     l <- maxLocalsBlock block 0
     mx <- gets maxLocals
     let toReserve = mx+ length args
-    liftIO $ print toReserve
     modify resetMaxLocals
-    modify (`addFun` QFun ident toReserve []) --possibly add FLabel
-    mapM_ (addQuad . (Alloc . QIndex)) [0..toReserve - 1]
+    modify (`addFun` QFun ident ret toReserve [])
     modify (`setStore` initLocalStore toReserve)
     loadArgs args
-    start <- getLabel
-    addQuad $ Label start
     quadruplizeBlock block
     when (raw ret == rawVoid) $ addQuad Vret
 
@@ -66,7 +61,7 @@ quadruplizeStmt (Empty pos)                     = return ()
 quadruplizeStmt (BStmt pos block)               = quadruplizeBlock block
 
 quadruplizeStmt (Decl pos t items)              = do
-    mapM_ quadruplizeItem items
+    mapM_ (quadruplizeItem t) items
 
 quadruplizeStmt (Ass pos ident expr)            = do
     reg <- quadruplizeExpr expr
@@ -152,16 +147,16 @@ quadruplizeStmt (SExp pos expr)                 = do
     quadruplizeExpr expr
     return ()
 
-quadruplizeItem :: Item -> QuadruplesState ()
-quadruplizeItem (NoInit pos ident)    = do
+quadruplizeItem :: Type -> Item -> QuadruplesState ()
+quadruplizeItem t (NoInit pos ident)    = do
     reg <- getRegister
     addQuad $ MovV (QInt 0) reg
-    mem <- store ident
+    mem <- store ident t
     addQuad $ Store reg mem
 
-quadruplizeItem (Init pos ident expr) = do
+quadruplizeItem t (Init pos ident expr) = do
     reg <- quadruplizeExpr expr
-    mem <- store ident
+    mem <- store ident t
     addQuad $ Store reg mem
 
 
@@ -187,10 +182,10 @@ quadruplizeExpr (EVar pos ident)          = do
     s <- gets localStore
     case M.lookup ident (varToMem s) of
       Nothing -> undefined
-      Just mem -> do
+      Just mem@(QIndex i str) -> do
         reg <- getRegister
         addQuad $ Load mem reg
-        return reg
+        return $ if str then stringReg reg else reg
 
 quadruplizeExpr (ELitInt pos integer)     = do
     reg <- getRegister
@@ -217,8 +212,17 @@ quadruplizeExpr (EString pos s)           = do
 quadruplizeExpr (EApp pos (Ident ident) exprs)    = do
     reg <- getRegister
     args <- mapM quadruplizeExpr exprs
-    addQuad $ Call ident args reg
-    return reg
+    p <- gets qprogram
+    case M.lookup ident (funcs p) of
+      Nothing -> undefined
+      Just f -> do
+        if raw (ret f) == rawVoid then
+            addQuad $ VoidCall ident args
+        else
+            addQuad $ Call ident args reg
+        if raw (ret f) == rawStr then return $ stringReg reg else return reg
+
+
 
 quadruplizeExpr (Abs.Neg pos expr)        = do
     reg <- quadruplizeExpr expr
@@ -246,11 +250,11 @@ quadruplizeExpr (EAdd pos expr1 op expr2) = do
     r2 <- quadruplizeExpr expr2
     case op of
       Plus _ -> if isStringReg r1 then do
-                    addQuad $ Call "1__concat" [r1, r2] reg --defining function with number at the begining protects us from name conflicts | typechecking allows us to check only one register
+                    addQuad $ Call "__concat" [r1, r2] reg --defining function with number at the begining protects us from name conflicts | typechecking allows us to check only one register
                 else
                     addQuad $ Compiler.Quadruples.Data.Add r1 r2 reg
       Minus _ -> addQuad $ Compiler.Quadruples.Data.Sub r1 r2 reg
-    return reg
+    return $ if isStringReg r1 then stringReg reg else reg
 
 quadruplizeExpr (ERel pos expr1 op expr2) = do
     reg <- getRegister
@@ -327,16 +331,16 @@ quadruplizeExpr (EOr pos expr1 expr2)     = do
 quadruplizeStringRel :: Register -> Register -> Register -> RelOp -> QuadruplesState Register
 quadruplizeStringRel reg r1 r2 op = do
     case op of
-        EQU ma -> addQuad $ Call "1__equals" [r1, r2] reg
+        EQU ma -> addQuad $ Call "__equals" [r1, r2] reg
         NE ma -> do
-                 addQuad $ Call "1__notequals" [r1, r2] reg
+                 addQuad $ Call "__notequals" [r1, r2] reg
         _ -> undefined
     return reg
 
 loadArgs :: [Arg] -> QuadruplesState ()
 loadArgs [] = return ()
-loadArgs ((Arg _ _ ident):as) = do
-    mem <- store ident
+loadArgs ((Arg _ t ident):as) = do
+    mem <- store ident t
     addQuad $ LoadArg mem --due to how store works arg index and mem index are the same
     loadArgs as
 
