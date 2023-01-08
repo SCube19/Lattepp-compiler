@@ -1,7 +1,7 @@
 all : compiler
 
 compiler : src/Main.hs src/Utils.hs syntax typechecker optimizer
-	ghc -isrc -package ghc src/Main.hs -o latc 
+	ghc -isrc -package ghc src/Main.hs -o latc_ARCH 
 
 syntax : src/Syntax/AbsLattepp.hs src/Syntax/LexLattepp.hs src/Syntax/ParLattepp.hs
 
@@ -12,7 +12,7 @@ typechecker : src/Typechecker/TypeChecker.hs src/Typechecker/Data.hs src/Typeche
 compiler : src/Compiler/Compiler.hs src/Compiler/Data.hs src/Compiler/Quadruples/Quadruples.hs src/Compiler/Quadruples/Data.hs 
 
 clean :
-	-rm -f src/*.hi src/*.o latc
+	-rm -f src/*.hi src/*.o latc_ARCH
 	-rm -f src/Optimizer/*.o src/Optimizer/*.hi
 	-rm -f src/Typechecker/*.o src/Typechecker/*.hi
 	-rm -f src/Compiler/*.o src/Compiler/*.hi

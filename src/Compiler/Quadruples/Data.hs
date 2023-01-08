@@ -6,9 +6,11 @@ import           Data.List                   (intercalate)
 import qualified Data.Map                    as M
 import           Data.Maybe                  (fromJust, fromMaybe, isNothing)
 import           Debug.Trace                 (trace)
-import           Syntax.AbsLattepp           (Ident (Ident), Program, TopDef,
-                                              TopDef' (FnDef), Type,
-                                              Type' (ObjectType))
+import           Syntax.AbsLattepp           (Block' (Block), Ident (Ident),
+                                              PrimType' (Bool, Int, Str, Void),
+                                              Program, TopDef, TopDef' (FnDef),
+                                              Type,
+                                              Type' (ObjectType, Primitive))
 import           Utils                       (Raw (raw), rawStr)
 
 type QuadruplesState = StateT QuadrupleS (ExceptT String IO)
@@ -62,6 +64,17 @@ _free s i =
     freeMem = v : freeMem s,
     varToMem = M.delete i (varToMem s)
 }
+
+predefinedFuncs :: M.Map String Type
+predefinedFuncs = M.fromList [
+    ("printInt", Primitive Nothing (Void Nothing) ),
+    ("printString",  Primitive Nothing (Void Nothing) ),
+    ("readInt", Primitive Nothing (Int Nothing) ),
+    ("readString", Primitive Nothing (Str Nothing) ),
+    ("error", Primitive Nothing (Void Nothing) ),
+    ("__concat", Primitive Nothing (Str Nothing) ),
+    ("__equals", Primitive Nothing (Bool Nothing) ),
+    ("__notequals", Primitive Nothing (Bool Nothing))]
 
 initQuadruplesS :: [TopDef] -> QuadrupleS
 initQuadruplesS defs = QuadrupleS {

@@ -18,7 +18,6 @@ quadruplize p@(Program _ defs) = do
     modify (`setPreprocessing` preprocessed)
     mapM_ quadruplizeTopDef defs
     prog <- gets qprogram
-    liftIO $ print prog
     gets qprogram
 
 
@@ -213,15 +212,22 @@ quadruplizeExpr (EApp pos (Ident ident) exprs)    = do
     reg <- getRegister
     args <- mapM quadruplizeExpr exprs
     p <- gets qprogram
+    --liftIO $ print $ funcs p
     case M.lookup ident (funcs p) of
-      Nothing -> undefined
+      Nothing -> case M.lookup ident predefinedFuncs of
+        Nothing -> undefined
+        Just t -> do
+            if raw t == rawVoid then
+                addQuad $ VoidCall ident args
+            else
+                addQuad $ Call ident args reg
+            if raw t == rawStr then return $ stringReg reg else return reg
       Just f -> do
         if raw (ret f) == rawVoid then
             addQuad $ VoidCall ident args
         else
             addQuad $ Call ident args reg
         if raw (ret f) == rawStr then return $ stringReg reg else return reg
-
 
 
 quadruplizeExpr (Abs.Neg pos expr)        = do

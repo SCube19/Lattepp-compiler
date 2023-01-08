@@ -9,7 +9,11 @@ import           Syntax.ParLattepp                 (myLexer, pProgram)
 import           System.Directory.Internal.Prelude (exitFailure, getArgs,
                                                     hPutStr, hPutStrLn, stderr)
 import           System.Exit                       (exitSuccess)
+import           System.FilePath                   (replaceExtension,
+                                                    takeBaseName, takeDirectory)
 import           System.IO                         ()
+import           System.Process                    (callCommand)
+import           Text.XHtml                        (object)
 import           Typechecker.TypeChecker           (checkReturn, typeCheck)
 import           Utils                             (exitError)
 
@@ -23,11 +27,21 @@ runProgram :: String -> ExceptT String IO String
 runProgram s = do
   tokens <- tokenize s
   typeCheck tokens
-  --optimized <- optimize tokens
+  optimized <- optimize tokens
   cleaned <- cleanDeadCode tokens --optimized
   checkReturn cleaned
   liftIO $ hPutStrLn stderr "OK"
   compile cleaned
+
+dump :: String -> String -> IO ()
+dump file asm = do
+  let name = replaceExtension file "s"
+  let object = replaceExtension file "o"
+  let binary = takeDirectory file ++ takeBaseName file
+  writeFile name asm
+  callCommand $ "nasm -f elf " ++ name
+  callCommand $ "gcc -g -O0 -m32 lib/runtime.o " ++ object ++ " -o " ++ binary
+  callCommand $ "rm " ++ object
 
 main :: IO ()
 main = do
@@ -36,6 +50,6 @@ main = do
     [file] -> do
       program <- readFile file
       result <- runExceptT $ runProgram program
-      either exitError (writeFile "result.asm") result
+      either exitError (dump file) result
     _ -> exitFailure
 

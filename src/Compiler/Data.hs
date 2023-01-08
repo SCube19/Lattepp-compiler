@@ -4,6 +4,7 @@ import           Control.Monad.Trans.Except (ExceptT)
 import           Control.Monad.Trans.State  (StateT, gets, modify)
 import           Data.List                  (intercalate)
 import qualified Data.Map                   as M
+import qualified Data.Set                   as S
 
 type CompilerState = StateT CompilerS (ExceptT String IO)
 
@@ -193,6 +194,7 @@ type AllocatorState = StateT AllocatorS (ExceptT String IO)
 
 data AllocatorS = AllocatorS {
     allocation      :: MemoryAllocation,
+    integers        :: S.Set Register,
     usedStackOffset :: Offset,
     allocSize       :: Int,
     memoryPool      :: [AsmOperand],
@@ -205,6 +207,7 @@ type MemoryAllocation = M.Map Register AsmOperand
 initAllocatorS :: Int -> AllocatorS
 initAllocatorS init = AllocatorS {
     allocation = M.empty,
+    integers = S.empty,
     usedStackOffset = -4 * (1 + init),
     allocSize = 0,
     memoryPool = [],
@@ -217,6 +220,7 @@ getStackOffset = do
     off <- gets usedStackOffset
     modify (\s -> AllocatorS {
         allocation = allocation s,
+        integers = integers s,
         usedStackOffset = usedStackOffset s - 4,
         allocSize = allocSize s + 1,
         memoryPool = memoryPool s,
@@ -228,6 +232,10 @@ getStackOffset = do
 allocate :: Register -> AsmOperand -> AllocatorState ()
 allocate reg mem = modify (\s -> AllocatorS {
     allocation = M.insert reg mem (allocation s),
+    integers = case mem of
+                ValOp _ -> S.insert reg (integers s)
+                RegOp _ -> integers s
+                MemOp _ -> integers s,
     allocSize = allocSize s,
     usedStackOffset = usedStackOffset s,
     memoryPool = memoryPool s,
@@ -238,6 +246,7 @@ allocate reg mem = modify (\s -> AllocatorS {
 insertFirstUsage :: Register -> Int -> AllocatorState ()
 insertFirstUsage r i = modify (\s -> AllocatorS {
         allocation = allocation s,
+        integers = integers s,
         usedStackOffset = usedStackOffset s,
         allocSize = allocSize s,
         memoryPool = memoryPool s,
@@ -248,6 +257,7 @@ insertFirstUsage r i = modify (\s -> AllocatorS {
 insertLastUsage :: Register -> Int -> AllocatorState ()
 insertLastUsage r i = modify (\s -> AllocatorS {
         allocation = allocation s,
+        integers = integers s,
         usedStackOffset = usedStackOffset s,
         allocSize = allocSize s,
         memoryPool = memoryPool s,
@@ -258,6 +268,7 @@ insertLastUsage r i = modify (\s -> AllocatorS {
 addToPool :: AsmOperand -> AllocatorState ()
 addToPool op = modify (\s -> AllocatorS {
     allocation = allocation s,
+    integers = integers s,
     usedStackOffset = usedStackOffset s,
     allocSize = allocSize s,
     memoryPool = op : memoryPool s,
@@ -270,6 +281,7 @@ shrinkPool = modify (\s ->
     let (m:ms) = memoryPool s in
         AllocatorS {
         allocation = allocation s,
+        integers = integers s,
         usedStackOffset = usedStackOffset s,
         allocSize = allocSize s,
         memoryPool = ms,

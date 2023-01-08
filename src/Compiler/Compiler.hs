@@ -41,6 +41,7 @@ compileQuadsFun :: QFun -> CompilerState ()
 compileQuadsFun f = do
     resetAllocation
     (mapping, size) <- lift $ evalStateT (allocMemory (body f)) (initAllocatorS (localcount f))
+    --liftIO $ print $ "mapping restult" ++ show mapping
     setAllocation mapping (size + localcount f)
     addInstr $ X86.ILabel $ AsmLabel (fident f)
     addInstr $ Push DWord (RegOp EBP)
@@ -79,7 +80,6 @@ compileQuad (Quad.Div r1 r2 res)                  = do
     else
         addInstr $ X86.Div DWord asmr2
     addInstr $ X86.Mov DWord asmres (RegOp EAX)
-
 
 compileQuad (Quad.Mul r1 r2 res)                  = do
     regs <- gets mapping
@@ -192,7 +192,6 @@ compileQuad (Quad.LoadArg (QIndex i _))                  = do
     addInstr $ X86.Mov DWord (RegOp EAX) (MemOp $ RegOff EBP (4 * (i + 2)))
     addInstr $ X86.Mov DWord (MemOp $ RegOff EBP (-4 * (i + 1))) (RegOp EAX)
 
-
 compileQuad (Quad.LoadIndir r1 off1 r2 off2 res)  = return ()
 compileQuad (Quad.LoadLbl l1 res)                 = do
     regs <- gets mapping
@@ -214,7 +213,7 @@ compileQuad (Quad.Call name args res)             = do
         let asmr = fromMaybe undefined (M.lookup r regs)
         addInstr $ Push DWord asmr) (reverse args)
     addInstr $ X86.Call (CLabel $ AsmLabel name)
-    addInstr $ X86.Add DWord (RegOp EBP) (ValOp $ VInt (4 * length args))
+    addInstr $ X86.Add DWord (RegOp ESP) (ValOp $ VInt (4 * length args))
     addInstr $ X86.Mov DWord asmres (RegOp EAX)
 
 compileQuad (Quad.VoidCall name args)             = do
@@ -223,7 +222,7 @@ compileQuad (Quad.VoidCall name args)             = do
         let asmr = fromMaybe undefined (M.lookup r regs)
         addInstr $ Push DWord asmr) (reverse args)
     addInstr $ X86.Call (CLabel $ AsmLabel name)
-    addInstr $ X86.Add DWord (RegOp EBP) (ValOp $ VInt (4 * length args))
+    addInstr $ X86.Add DWord (RegOp ESP) (ValOp $ VInt (4 * length args))
 
 compileQuad (Quad.VCall name args r1 off1 res)    = return ()
 compileQuad (Quad.Vtab r1 t)                      = return ()
@@ -231,20 +230,19 @@ compileQuad (Quad.Vtab r1 t)                      = return ()
 ----------------------------------------------------------------------------
 allocMemory :: [Quadruple] -> AllocatorState (MemoryAllocation, Int)
 allocMemory qs = do
-    liftIO $ print "1"
     let consts = getConsts qs S.empty
-    liftIO $ print "2"
-    liftIO $ print consts
+    --liftIO $ print $ "consts " ++ show consts
     defineIntervals qs consts 0
     fu <- gets fusage
     lu <- gets lusage
-    liftIO $ print fu
-    liftIO $ print lu
+    al <- gets allocation
+    --liftIO $ print fu
+    --liftIO $ print lu
+    --liftIO $ print al
     makeAllocation qs consts 0
-    liftIO $ print "4"
     alloc <- gets allocation
     size <- gets allocSize
-    return $ (alloc, size)
+    return (alloc, size)
 
 
 getConsts :: [Quadruple] -> S.Set Register -> S.Set Register
@@ -262,32 +260,51 @@ getConsts (q:qs) s =
 defineIntervals :: [Quadruple] -> S.Set Register -> Int -> AllocatorState () --fix
 defineIntervals [] _ _ = return ()
 defineIntervals (q:qs) consts i = do
-    let all = extractAll q
+    ints <- gets integers
+    let all = filter (\x -> not $ S.member x ints) (extractAll q)
     let result = extractResult q
+   -- liftIO $ print ("quad " ++ show q)
+   -- liftIO $ print ("all" ++ show all)
+   -- liftIO $ print ("res " ++ show result)
     case result of
       Nothing -> _defineIntervals all i
       Just reg ->
         case q of
             MovV v _ ->
                 if S.member reg consts then do
-                    liftIO $ print "siusiak"
+                    -- alloc <- gets allocation
+                    -- liftIO $ print $ "before " ++ show alloc
                     allocate reg (ValOp (VInt $ qvalueInt v))
-                    let all1 = delete reg all
-                    _defineIntervals all1 i
+                    -- alloc2 <- gets allocation
+                    -- liftIO $ print $ "after " ++ show alloc2
+                    -- alloc3 <- gets allocation
+                    -- liftIO $ print $ "after2 " ++ show alloc3
+                    _defineIntervals all i
+                    -- alloc4 <- gets allocation
+                    -- liftIO $ print $ "after3 " ++ show alloc4
                 else _defineIntervals all i
             _ -> _defineIntervals all i
+
+    -- alloc5 <- gets allocation
+    -- liftIO $ print $ "after4 " ++ show alloc5
     defineIntervals qs consts (i + 1)
 
 _defineIntervals :: [Register] -> Int -> AllocatorState ()
 _defineIntervals rs i = do
+    -- liftIO $ print$ "inserting " ++ show i ++ " " ++ show rs
     mapM_ (\r -> do
         insertFirstUsage r i
         insertLastUsage r i) rs
+    -- fu <- gets fusage
+    -- lu <- gets lusage
+    -- liftIO $ print $ "fusage " ++ show fu
+    -- liftIO $ print $ "lusage " ++ show lu
 
 makeAllocation :: [Quadruple] -> S.Set Register -> Int -> AllocatorState ()
 makeAllocation [] _ _ = return ()
 makeAllocation (q:qs) consts i = do
-    let all = extractAll q
+    ints <- gets integers
+    let all = filter (\x -> not $ S.member x ints) (extractAll q)
     fu <- gets fusage
     lu <- gets lusage
     mapM_ (\r -> do
