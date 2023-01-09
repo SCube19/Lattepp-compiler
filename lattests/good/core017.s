@@ -1,7 +1,7 @@
 section .data
-	L12 db 'apa', 0
-	L36 db 'false', 0
-	L35 db 'true', 0
+	L12 db `apa`, 0
+	L36 db `false`, 0
+	L35 db `true`, 0
 section .text
 global main
 extern printInt
@@ -36,6 +36,8 @@ implies:
 	mov DWORD eax, [ebp+12]
 	mov DWORD [ebp+-8], eax
 	mov DWORD eax, [ebp+-4]
+	mov DWORD [ebp+-12], eax
+	mov DWORD eax, [ebp+-12]
 	mov DWORD [ebp+-12], eax
 	not DWORD [ebp+-12]
 	mov DWORD eax, 0
@@ -161,7 +163,8 @@ L15:
 	push DWORD [ebp+-8]
 	call printBool
 	add DWORD esp, 4
-	mov DWORD [ebp+-8], 5
+	mov DWORD eax, 5
+	mov DWORD [ebp+-8], eax
 	neg DWORD [ebp+-8]
 	mov DWORD eax, [ebp+-8]
 	mov DWORD ebx, 4
@@ -207,7 +210,8 @@ L27:
 	mov DWORD eax, 0
 	cmp DWORD [ebp+-8], eax
 	je L23
-	mov DWORD [ebp+-8], 0
+	mov DWORD eax, 0
+	mov DWORD [ebp+-8], eax
 	not DWORD [ebp+-8]
 	mov DWORD eax, [ebp+-8]
 	mov DWORD ebx, 4294967295

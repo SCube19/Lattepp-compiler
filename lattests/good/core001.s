@@ -1,8 +1,8 @@
 section .data
-	L29 db '', 0
-	L6 db '/* world', 0
-	L4 db '=', 0
-	L5 db 'hello */', 0
+	L29 db ``, 0
+	L6 db `/* world`, 0
+	L4 db `=`, 0
+	L5 db `hello */`, 0
 section .text
 global main
 extern printInt

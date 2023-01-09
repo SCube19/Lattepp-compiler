@@ -1,5 +1,5 @@
 section .data
-	L0 db 'foo', 0
+	L0 db `foo`, 0
 section .text
 global main
 extern printInt

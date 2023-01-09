@@ -13,9 +13,11 @@ main:
 	push DWORD ebp
 	mov DWORD ebp, esp
 	sub DWORD esp, 8
-	mov DWORD [ebp+-4], 42
+	mov DWORD eax, 42
+	mov DWORD [ebp+-4], eax
 	neg DWORD [ebp+-4]
-	mov DWORD [ebp+-8], 1
+	mov DWORD eax, 1
+	mov DWORD [ebp+-8], eax
 	neg DWORD [ebp+-8]
 	mov DWORD eax, [ebp+-4]
 	cdq

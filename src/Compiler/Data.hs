@@ -5,6 +5,7 @@ import           Control.Monad.Trans.State  (StateT, gets, modify)
 import           Data.List                  (intercalate)
 import qualified Data.Map                   as M
 import qualified Data.Set                   as S
+import           Utils                      (noheadtail)
 
 type CompilerState = StateT CompilerS (ExceptT String IO)
 
@@ -185,7 +186,7 @@ instance Show AsmInstr where
     show (Extern s)    = "extern " ++ s ++ "\n"
     show (Text s)      = "text " ++ s ++ "\n"
     show (Global s)    = "global " ++ s ++ "\n"
-    show (DataString l s) = "\t" ++ l ++ " db '" ++ s ++ "', 0\n"
+    show (DataString l s) = "\t" ++ l ++ " db `" ++ noheadtail (show s) ++ "`, 0\n"
     show (DataBuffer l size) = "\t" ++ l ++
         if size `mod` 4 == 0 then " dd " else if even size then " dw " else " db " ++
         if size `mod` 4 == 0 then intercalate "," (replicate (div size 4) "0")

@@ -364,8 +364,8 @@ data Quadruple =
     Jg QLabel |
     Jle QLabel |
     Jl QLabel |
-    Neg Register |
-    Not Register |
+    Neg Register Register |
+    Not Register Register |
     MovV QValue Register |
     Mov Register Register |
     Inc QIndex |
@@ -400,8 +400,8 @@ extractResult (Jge _)                = Nothing
 extractResult (Jg _)                 = Nothing
 extractResult (Jle _)                = Nothing
 extractResult (Jl _)                 = Nothing
-extractResult (Neg r)                = Just r
-extractResult (Not r)                = Just r
+extractResult (Neg _ r)              = Just r
+extractResult (Not _ r)              = Just r
 extractResult (MovV _ r)             = Just r
 extractResult (Mov _ r)              = Just r
 extractResult (Inc _)                = Nothing
@@ -435,8 +435,8 @@ extractAll (Jge _)                   = []
 extractAll (Jg _)                    = []
 extractAll (Jle _)                   = []
 extractAll (Jl _)                    = []
-extractAll (Neg r1)                  = [r1]
-extractAll (Not r1)                  = [r1]
+extractAll (Neg r1 r2)               = [r1, r2]
+extractAll (Not r1 r2)               = [r1, r2]
 extractAll (MovV _ r1)               = [r1]
 extractAll (Mov r1 r2)               = [r1, r2]
 extractAll (Inc _ )                  = []
@@ -501,8 +501,8 @@ instance Show Quadruple where
     show (Jg l1) = "jg " ++ show l1 ++ "\n"
     show (Jle l1) = "jle " ++ show l1 ++ "\n"
     show (Jl l1) = "jl " ++ show l1 ++ "\n"
-    show (Neg r1) = "neg " ++ show r1 ++ "\n"
-    show (Not r1) = "not " ++ show r1 ++ "\n"
+    show (Neg r1 result) = "neg " ++ show result ++ " " ++ show r1 ++ "\n"
+    show (Not r1 result) = "not " ++ show result ++ " " ++ show r1 ++ "\n"
     show (MovV val r1) = "mov " ++ show r1 ++ ", " ++ show val ++ "\n"
     show (Mov r1 r2) = "mov " ++ show r2 ++ ", " ++ show r1 ++ "\n"
     show (Inc i1) = "inc " ++ show i1 ++ "\n"

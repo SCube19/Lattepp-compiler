@@ -137,15 +137,25 @@ compileQuad (Quad.Jle l1)                         =
 compileQuad (Quad.Jl l1)                          =
     addInstr $ X86.Jl (AsmLabel $ labelref l1)
 
-compileQuad (Quad.Neg r1)                      = do
+compileQuad (Quad.Neg r1 res)                      = do
     regs <- gets mapping
+    let asmres = fromMaybe undefined (M.lookup res regs)
     let asmr1 = fromMaybe undefined (M.lookup r1 regs)
-    addInstr $ X86.Neg DWord asmr1
+    when (r1 /= res)
+        (   do
+            addInstr $ X86.Mov DWord (RegOp EAX) asmr1
+            addInstr $ X86.Mov DWord asmres (RegOp EAX))
+    addInstr $ X86.Neg DWord asmres
 
-compileQuad (Quad.Not r1)                      = do
+compileQuad (Quad.Not r1 res)                      = do
     regs <- gets mapping
+    let asmres = fromMaybe undefined (M.lookup res regs)
     let asmr1 = fromMaybe undefined (M.lookup r1 regs)
-    addInstr $ X86.Not DWord asmr1
+    when (r1 /= res)
+        (   do
+            addInstr $ X86.Mov DWord (RegOp EAX) asmr1
+            addInstr $ X86.Mov DWord asmres (RegOp EAX))
+    addInstr $ X86.Not DWord asmres
 
 compileQuad (Quad.MovV v r1)                      = do
     regs <- gets mapping
@@ -237,10 +247,7 @@ allocMemory :: [Quadruple] -> AllocatorState (MemoryAllocation, Int)
 allocMemory qs = do
     let consts = getConsts qs S.empty
     defineIntervals qs consts 0
-    fu <- gets fusage
-    lu <- gets lusage
-    al <- gets allocation
-    makeAllocation qs consts 0
+    makeAllocation qs 0
     alloc <- gets allocation
     size <- gets allocSize
     return (alloc, size)
@@ -282,9 +289,9 @@ _defineIntervals rs i = do
         insertFirstUsage r i
         insertLastUsage r i) rs
 
-makeAllocation :: [Quadruple] -> S.Set Register -> Int -> AllocatorState ()
-makeAllocation [] _ _ = return ()
-makeAllocation (q:qs) consts i = do
+makeAllocation :: [Quadruple] -> Int -> AllocatorState ()
+makeAllocation [] _ = return ()
+makeAllocation (q:qs) i = do
     ints <- gets integers
     let all = filter (\x -> not $ S.member x ints) (extractAll q)
     fu <- gets fusage
@@ -308,4 +315,4 @@ makeAllocation (q:qs) consts i = do
           Just n  -> when (i == n) (do
                 maybe undefined addToPool (M.lookup r (allocation st2)))
             ) all
-    makeAllocation qs consts (i + 1)
+    makeAllocation qs (i + 1)

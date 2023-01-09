@@ -109,7 +109,8 @@ main:
 	push DWORD ebp
 	mov DWORD ebp, esp
 	sub DWORD esp, 8
-	mov DWORD [ebp+-4], 1
+	mov DWORD eax, 1
+	mov DWORD [ebp+-4], eax
 	neg DWORD [ebp+-4]
 	sub DWORD esp, 8
 	push DWORD [ebp+-4]

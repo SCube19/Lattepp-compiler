@@ -1,9 +1,9 @@
 section .data
-	L5 db ' ', 0
-	L6 db 'concatenation', 0
-	L10 db 'false', 0
-	L4 db 'string', 0
-	L9 db 'true', 0
+	L5 db ` `, 0
+	L6 db `concatenation`, 0
+	L10 db `false`, 0
+	L4 db `string`, 0
+	L9 db `true`, 0
 section .text
 global main
 extern printInt
@@ -20,7 +20,8 @@ main:
 	sub DWORD esp, 24
 	mov DWORD eax, 56
 	mov DWORD [ebp+-4], eax
-	mov DWORD [ebp+-12], 23
+	mov DWORD eax, 23
+	mov DWORD [ebp+-12], eax
 	neg DWORD [ebp+-12]
 	mov DWORD eax, [ebp+-12]
 	mov DWORD [ebp+-8], eax

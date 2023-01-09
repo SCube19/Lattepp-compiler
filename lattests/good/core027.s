@@ -1,6 +1,6 @@
 section .data
-	L0 db 'bad', 0
-	L1 db 'good', 0
+	L0 db `bad`, 0
+	L1 db `good`, 0
 section .text
 global main
 extern printInt

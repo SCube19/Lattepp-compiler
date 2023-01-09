@@ -1,6 +1,6 @@
 section .data
-	L7 db 'NOOO', 0
-	L6 db 'yes', 0
+	L7 db `NOOO`, 0
+	L6 db `yes`, 0
 section .text
 global main
 extern printInt

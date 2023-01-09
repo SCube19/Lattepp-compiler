@@ -1,9 +1,9 @@
 section .data
-	L26 db '!', 0
-	L0 db '&&', 0
-	L29 db 'false', 0
-	L30 db 'true', 0
-	L13 db '||', 0
+	L26 db `!`, 0
+	L0 db `&&`, 0
+	L29 db `false`, 0
+	L30 db `true`, 0
+	L13 db `||`, 0
 section .text
 global main
 extern printInt
@@ -23,7 +23,8 @@ main:
 	push DWORD [ebp+-4]
 	call printString
 	add DWORD esp, 4
-	mov DWORD [ebp+-4], 1
+	mov DWORD eax, 1
+	mov DWORD [ebp+-4], eax
 	neg DWORD [ebp+-4]
 	sub DWORD esp, 12
 	push DWORD [ebp+-4]
@@ -51,7 +52,8 @@ L3:
 	push DWORD [ebp+-8]
 	call printBool
 	add DWORD esp, 4
-	mov DWORD [ebp+-8], 2
+	mov DWORD eax, 2
+	mov DWORD [ebp+-8], eax
 	neg DWORD [ebp+-8]
 	sub DWORD esp, 12
 	push DWORD [ebp+-8]
@@ -87,7 +89,8 @@ L6:
 	mov DWORD eax, 0
 	cmp DWORD [ebp+-4], eax
 	je L7
-	mov DWORD [ebp+-4], 5
+	mov DWORD eax, 5
+	mov DWORD [ebp+-4], eax
 	neg DWORD [ebp+-4]
 	sub DWORD esp, 12
 	push DWORD [ebp+-4]
@@ -138,7 +141,8 @@ L12:
 	push DWORD [ebp+-8]
 	call printString
 	add DWORD esp, 4
-	mov DWORD [ebp+-8], 1
+	mov DWORD eax, 1
+	mov DWORD [ebp+-8], eax
 	neg DWORD [ebp+-8]
 	sub DWORD esp, 12
 	push DWORD [ebp+-8]
@@ -166,7 +170,8 @@ L16:
 	push DWORD [ebp+-4]
 	call printBool
 	add DWORD esp, 4
-	mov DWORD [ebp+-4], 2
+	mov DWORD eax, 2
+	mov DWORD [ebp+-4], eax
 	neg DWORD [ebp+-4]
 	sub DWORD esp, 12
 	push DWORD [ebp+-4]
@@ -202,7 +207,8 @@ L19:
 	mov DWORD eax, 0
 	cmp DWORD [ebp+-8], eax
 	jne L21
-	mov DWORD [ebp+-8], 5
+	mov DWORD eax, 5
+	mov DWORD [ebp+-8], eax
 	neg DWORD [ebp+-8]
 	sub DWORD esp, 12
 	push DWORD [ebp+-8]
@@ -271,6 +277,8 @@ printBool:
 	mov DWORD eax, [ebp+8]
 	mov DWORD [ebp+-4], eax
 	mov DWORD eax, [ebp+-4]
+	mov DWORD [ebp+-8], eax
+	mov DWORD eax, [ebp+-8]
 	mov DWORD [ebp+-8], eax
 	not DWORD [ebp+-8]
 	mov DWORD eax, 0

@@ -35,6 +35,11 @@ firstDuplicateIndex xs = dup' xs Set.empty
                            then Just $ length s
                            else dup' xs (Set.insert x s)
 
+noheadtail :: [a] -> [a]
+noheadtail []  = []
+noheadtail [a] = []
+noheadtail xs  = tail $ init xs
+
 -- -------------PRETTY-------------------------------------------------------------------
 class Pretty a where
     pretty :: a -> String

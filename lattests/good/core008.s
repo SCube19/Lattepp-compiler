@@ -17,7 +17,8 @@ main:
 	mov DWORD [ebp+-4], eax
 	mov DWORD eax, 7
 	mov DWORD [ebp+-8], eax
-	mov DWORD [ebp+-12], 1234234
+	mov DWORD eax, 1234234
+	mov DWORD [ebp+-12], eax
 	neg DWORD [ebp+-12]
 	mov DWORD eax, [ebp+-12]
 	mov DWORD [ebp+-4], eax

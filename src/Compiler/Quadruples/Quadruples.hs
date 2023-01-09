@@ -18,7 +18,7 @@ quadruplize p@(Program _ defs) = do
     modify (`setPreprocessing` preprocessed)
     mapM_ quadruplizeTopDef defs
     prog <- gets qprogram
-    --liftIO $ print $ prog
+    -- liftIO (writeFile "quads.txt" (show prog))
     gets qprogram
 
 
@@ -207,37 +207,37 @@ quadruplizeExpr (EString pos s)           = do
     addQuad $ LoadLbl label strReg
     return strReg
 
-quadruplizeExpr (EApp pos (Ident ident) exprs)    = do
-    reg <- getRegister
+quadruplizeExpr app@(EApp pos (Ident ident) exprs)   = do
     args <- mapM quadruplizeExpr exprs
     p <- gets qprogram
-    --liftIO $ print $ funcs p
-    case M.lookup ident (funcs p) of
-      Nothing -> case M.lookup ident predefinedFuncs of
-        Nothing -> undefined
-        Just t -> do
-            if raw t == rawVoid then
-                addQuad $ VoidCall ident args
-            else
-                addQuad $ Call ident args reg
-            if raw t == rawStr then return $ stringReg reg else return reg
-      Just f -> do
-        if raw (ret f) == rawVoid then
-            addQuad $ VoidCall ident args
-        else
-            addQuad $ Call ident args reg
-        if raw (ret f) == rawStr then return $ stringReg reg else return reg
+    vc <- isVoidCall app
+    if vc then do
+        addQuad $ VoidCall ident args
+        return $ Register (-1) False --wont be used anyway
+    else do
+        reg <- getRegister
+        case M.lookup ident (funcs p) of
+            Nothing -> case M.lookup ident predefinedFuncs of
+                Nothing -> undefined
+                Just t -> do
+                        addQuad $ Call ident args reg
+                        if raw t == rawStr then return $ stringReg reg else return reg
+            Just f -> do
+                    addQuad $ Call ident args reg
+                    if raw (ret f) == rawStr then return $ stringReg reg else return reg
 
 
 quadruplizeExpr (Abs.Neg pos expr)        = do
+    res <- getRegister
     reg <- quadruplizeExpr expr
-    addQuad $ Compiler.Quadruples.Data.Neg reg
-    return reg
+    addQuad $ Compiler.Quadruples.Data.Neg reg res
+    return res
 
 quadruplizeExpr (Abs.Not pos expr)        = do
+    res <- getRegister
     reg <- quadruplizeExpr expr
-    addQuad $ Compiler.Quadruples.Data.Not reg
-    return reg
+    addQuad $ Compiler.Quadruples.Data.Not reg res
+    return res
 
 quadruplizeExpr (EMul pos expr1 op expr2) = do
     reg <- getRegister
@@ -349,6 +349,17 @@ loadArgs ((Arg _ t ident):as) = do
     addQuad $ LoadArg mem --due to how store works arg index and mem index are the same
     loadArgs as
 
+isVoidCall :: Expr -> QuadruplesState Bool
+isVoidCall q = case q of
+    EApp _ (Ident i) _ -> do
+        p <- gets qprogram
+        case M.lookup i (funcs p) of
+          Nothing -> case M.lookup i predefinedFuncs of
+            Nothing -> undefined
+            Just t  -> return $ raw t == rawVoid
+          Just f -> return $ raw (ret f) == rawVoid
+
+    _ -> undefined
 --------------------------------------------------------------------------------------
 
 
