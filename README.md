@@ -2,13 +2,22 @@
 
 ⚠️ User discresion is advised ⚠️
 
+# Prerequisites
+
+i686 gcc compiler (provided on students machine), that you can install with
+
+```
+sudo apt update
+sudo apt install gcc-i686-linux-gnu
+```
+
 # Build
 
 ```
 make
 ```
 
-After the build 'latc' binary will be created
+After the build 'latc_ARCH' binary will be created and runtime.o object will appear in lib directory
 
 # Clean
 
@@ -19,10 +28,10 @@ make clean
 # Run
 
 ```
-./latc <latte file>
+./latc_ARCH <latte file>
 
 Example
-./latc example.lat
+./latc_ARCH example.lat
 ```
 
 # External programs used
