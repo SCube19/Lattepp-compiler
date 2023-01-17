@@ -6,12 +6,10 @@ import           Control.Monad.Trans.State  (StateT (runStateT), evalStateT,
                                              get, gets, put)
 import qualified Data.Map                   as M
 import           Debug.Trace
-import           Optimizer.Data             (OptimizerS (consts),
+import           Optimizer.Data             (OptimizerS (OptimizerS, consts),
                                              OptimizerState,
                                              Value (BoolV, IntV, StrV),
-                                             castBool, castInteger, castString,
-                                             initOptimizerS, localOptimizerEnv,
-                                             putConst)
+                                             castBool, castInteger, castString)
 import           Optimizer.Utils
 import           Syntax.AbsLattepp
 import           Utils                      (Raw (raw), rawBool, rawExtIdent,
@@ -19,12 +17,12 @@ import           Utils                      (Raw (raw), rawBool, rawExtIdent,
 
 optimize :: Program -> ExceptT String IO Program
 optimize (Program pos defs) = do
-    newDefs <- evalStateT (mapM optimizeTopDef defs) initOptimizerS
+    newDefs <- evalStateT (mapM optimizeTopDef defs) (OptimizerS {consts = M.empty})
     return $ Program pos newDefs
 
 optimizeTopDef :: TopDef -> OptimizerState TopDef
 optimizeTopDef (FnDef pos ret ident args block) = do
-    newBlock <- localOptimizerEnv initOptimizerS (optimizeBlock block)
+    newBlock <- optimizeBlock block
     return $ FnDef pos ret ident args newBlock
 
 optimizeTopDef (ClassDef pos ident block) = do
@@ -38,7 +36,7 @@ optimizeTopDef (ExtClassDef pos ident ext block) = do
 optimizeBlock :: Block -> OptimizerState Block
 optimizeBlock (Block pos stmts) = do
     st <- get
-    newStmts <- localOptimizerEnv st (mapM optimizeStmt stmts)
+    newStmts <- mapM optimizeStmt stmts
     return $ Block pos newStmts
 
 optimizeClassBlock :: ClassBlock -> OptimizerState ClassBlock
@@ -80,24 +78,13 @@ optimizeStmt (BStmt pos block) = do
     return $ BStmt pos newBlock
 
 optimizeStmt (Decl pos t items) = do
-    newItems <- mapM (optimizeItem t) items
+    newItems <- mapM optimizeItem items
     return $ Decl pos t newItems
 
 optimizeStmt (Ass pos ident expr) = do
     newExpr <- optimizeExpr expr
     newIdent <- optimizeExtIdent ident
-    st <- get
-    case newIdent of
-      Id _ id -> case newExpr of
-        ELitInt _ val -> put $ putConst st id (Int Nothing, IntV val)
-        ELitTrue _    -> put $ putConst st id (Bool Nothing, BoolV True)
-        ELitFalse _   -> put $ putConst st id (Bool Nothing, BoolV False)
-        EString _ s   -> put $ putConst st id (Str Nothing, StrV s)
-        _             -> return ()
-      ArrId {} -> return ()
-      AttrId {} -> return ()
-    newSt <- get
-    return $ Ass pos ident newExpr
+    return $ Ass pos newIdent newExpr
 
 optimizeStmt (Incr pos ident) = do
     newIdent <- optimizeExtIdent ident
@@ -116,25 +103,25 @@ optimizeStmt (VRet pos) = return $ VRet pos
 optimizeStmt (Cond pos expr stmt) = do
     newExpr <- optimizeExpr expr
     st <- get
-    newStmt <- localOptimizerEnv st (optimizeStmt stmt)
+    newStmt <- optimizeStmt stmt
     return $ Cond pos newExpr newStmt
 
 optimizeStmt (CondElse pos expr stmt1 stmt2) = do
     newExpr <- optimizeExpr expr
     st <- get
-    newStmt1 <- localOptimizerEnv st (optimizeStmt stmt1)
-    newStmt2 <- localOptimizerEnv st (optimizeStmt stmt2)
+    newStmt1 <- optimizeStmt stmt1
+    newStmt2 <- optimizeStmt stmt2
     return $ CondElse pos newExpr newStmt1 newStmt2
 
 optimizeStmt (While pos expr stmt) = do
     newExpr <- optimizeExpr expr
     st <- get
-    newStmt <- localOptimizerEnv st (optimizeStmt stmt)
+    newStmt <- optimizeStmt stmt
     return $ While pos newExpr newStmt
 
 optimizeStmt (For pos t ident1 ident2 stmt) = do
     st <- get
-    newStmt <- localOptimizerEnv st (optimizeStmt stmt)
+    newStmt <- optimizeStmt stmt
     newIdent <- optimizeExtIdent ident2
     return $ For pos t ident1 newIdent newStmt
 
@@ -142,30 +129,11 @@ optimizeStmt (SExp pos expr) = do
     newExpr <- optimizeExpr expr
     return $ SExp pos newExpr
 
-optimizeItem :: Type -> Item -> OptimizerState Item
-optimizeItem  t (NoInit pos ident) = do
-    st <- get
-    case t of
-      Primitive _ pt -> do
-        put $ putConst st ident (raw pt, case pt of
-                                                Int _  -> IntV 0
-                                                Str _  -> StrV ""
-                                                Bool _ -> BoolV False
-                                                Void _ -> undefined)
-        newSt <- get
-        return $ NoInit pos ident
-      _ -> return $ NoInit pos ident
+optimizeItem :: Item -> OptimizerState Item
+optimizeItem i@(NoInit pos ident) = return i
 
-optimizeItem t (Init pos ident expr) = do
+optimizeItem (Init pos ident expr) = do
     newExpr <- optimizeExpr expr
-    st <- get
-    case newExpr of
-        ELitInt _ val -> put $ putConst st ident (Int Nothing, IntV val)
-        ELitTrue _    -> put $ putConst st ident (Bool Nothing, BoolV True)
-        ELitFalse _   -> put $ putConst st ident (Bool Nothing, BoolV False)
-        EString _ s   -> put $ putConst st ident (Str Nothing, StrV s)
-        _             -> return ()
-    newSt <- get
     return $ Init pos ident newExpr
 
 optimizeExpr :: Expr -> OptimizerState Expr
@@ -194,15 +162,7 @@ optimizeExpr(EArr pos ident expr) = do
     newExpr <- optimizeExpr expr
     return $ EArr pos ident newExpr
 
-optimizeExpr(EVar pos ident) = do
-    c <- gets consts
-    case M.lookup ident c of
-      Nothing -> return $ EVar pos ident
-      Just (t, val) -> case t of
-        Int _  -> return $ ELitInt pos (castInteger val)
-        Str _  -> return $ EString pos (castString val)
-        Bool _ -> return $ if castBool val then ELitTrue pos else ELitFalse pos
-        _      -> undefined
+optimizeExpr(EVar pos ident) = return $ EVar pos ident
 
 optimizeExpr(ELitInt pos integer) = return $ ELitInt pos integer
 

@@ -309,7 +309,7 @@ data QClass = QClass {
     cident  :: String,
     fields  :: [QCField],
     methods :: [String],
-    super   :: Maybe QClass
+    super   :: Maybe String
 }
 
 classDefPreToQClass :: Pre.ClassDefPre -> QClass
@@ -317,18 +317,17 @@ classDefPreToQClass c = QClass {
     cident = Pre.ident c,
     fields = preFieldsToQFields (Pre.attrs c),
     methods = map fst (M.toList $ Pre.methods c),
-    super = case Pre.super c of
-      Nothing -> Nothing
-      Just c2 -> Just $ classDefPreToQClass c2
+    super = Pre.super c
 }
 
 data QCField = QCField {
-    fieldName :: String,
-    fieldSize :: Int
+    fieldName   :: String,
+    fieldOffset :: Int,
+    fieldSize   :: Int
 }
 
-preFieldsToQFields :: M.Map String Type -> [QCField]
-preFieldsToQFields fs = map (\(f, s) -> QCField {fieldName = f, fieldSize = 4}) (M.toList fs)
+preFieldsToQFields :: M.Map String (Type, Int) -> [QCField]
+preFieldsToQFields fs = map (\(f, (t, o)) -> QCField {fieldName = f, fieldOffset = o, fieldSize = 4}) (M.toList fs)
 
 newtype QLabel = QLabel Int deriving (Eq, Ord)
 
@@ -364,6 +363,12 @@ data Quadruple =
     Jg QLabel |
     Jle QLabel |
     Jl QLabel |
+    PhiJe  QLabel QLabel Register |
+    PhiJne QLabel QLabel Register |
+    PhiJge QLabel QLabel Register |
+    PhiJg  QLabel QLabel Register |
+    PhiJle QLabel QLabel Register |
+    PhiJl  QLabel QLabel Register |
     Neg Register Register |
     Not Register Register |
     MovV QValue Register |
@@ -400,6 +405,12 @@ extractResult (Jge _)                = Nothing
 extractResult (Jg _)                 = Nothing
 extractResult (Jle _)                = Nothing
 extractResult (Jl _)                 = Nothing
+extractResult (PhiJe  _ _ r)         = Just r
+extractResult (PhiJne _ _ r)         = Just r
+extractResult (PhiJge _ _ r)         = Just r
+extractResult (PhiJg  _ _ r)         = Just r
+extractResult (PhiJle _ _ r)         = Just r
+extractResult (PhiJl  _ _ r)         = Just r
 extractResult (Neg _ r)              = Just r
 extractResult (Not _ r)              = Just r
 extractResult (MovV _ r)             = Just r
@@ -435,6 +446,12 @@ extractAll (Jge _)                   = []
 extractAll (Jg _)                    = []
 extractAll (Jle _)                   = []
 extractAll (Jl _)                    = []
+extractAll (PhiJe  _ _ r1)           = [r1]
+extractAll (PhiJne _ _ r1)           = [r1]
+extractAll (PhiJge _ _ r1)           = [r1]
+extractAll (PhiJg  _ _ r1)           = [r1]
+extractAll (PhiJle _ _ r1)           = [r1]
+extractAll (PhiJl  _ _ r1)           = [r1]
 extractAll (Neg r1 r2)               = [r1, r2]
 extractAll (Not r1 r2)               = [r1, r2]
 extractAll (MovV _ r1)               = [r1]
@@ -479,7 +496,7 @@ showConstString :: (String, QLabel) -> String
 showConstString (s, l) = show l ++ " " ++ show s ++ "\n"
 
 instance Show QClass where
-    show c = "class " ++ cident c ++ if isNothing (super c) then "" else ("$" ++ cident (fromMaybe c (super c))) ++ "\n" ++ concat (map show (fields c) ++ map show (methods c)) ++ "endclass"
+    show c = "class " ++ cident c ++ if isNothing (super c) then "" else ("$" ++ fromMaybe "" (super c)) ++ "\n" ++ concat (map show (fields c) ++ map show (methods c)) ++ "endclass"
 
 instance Show QCField where
     show field = fieldName field ++ "^" ++ show (fieldSize field) ++ "\n"
@@ -501,6 +518,12 @@ instance Show Quadruple where
     show (Jg l1) = "jg " ++ show l1 ++ "\n"
     show (Jle l1) = "jle " ++ show l1 ++ "\n"
     show (Jl l1) = "jl " ++ show l1 ++ "\n"
+    show (PhiJe  l1 l2 r1) = show r1 ++ " = phi je " ++  show l1 ++  show l2 ++ "\n"
+    show (PhiJne l1 l2 r1) = show r1 ++ " = phi jne " ++ show l1 ++ show l2 ++  "\n"
+    show (PhiJge l1 l2 r1) = show r1 ++ " = phi jge " ++ show l1 ++ show l2 ++  "\n"
+    show (PhiJg  l1 l2 r1) = show r1 ++ " = phi jg " ++  show l1 ++  show l2 ++ "\n"
+    show (PhiJle l1 l2 r1) = show r1 ++ " = phi jle " ++ show l1 ++ show l2 ++  "\n"
+    show (PhiJl  l1 l2 r1) = show r1 ++ " = phi jl " ++  show l1 ++  show l2 ++ "\n"
     show (Neg r1 result) = "neg " ++ show result ++ " " ++ show r1 ++ "\n"
     show (Not r1 result) = "not " ++ show result ++ " " ++ show r1 ++ "\n"
     show (MovV val r1) = "mov " ++ show r1 ++ ", " ++ show val ++ "\n"

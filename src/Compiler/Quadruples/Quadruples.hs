@@ -10,15 +10,16 @@ import           Control.Monad.State            (MonadIO (liftIO),
 import           Control.Monad.Trans.Except     (ExceptT)
 import qualified Data.Map                       as M
 import           Syntax.AbsLattepp              as Abs
+import           Typechecker.Data               (TypeCheckerS)
 import           Utils                          (Raw (raw), rawStr, rawVoid)
 
-quadruplize :: Program -> QuadruplesState QProgram
-quadruplize p@(Program _ defs) = do
-    preprocessed <- lift $ evalStateT (preprocess p) initPreprocessS
+quadruplize :: Program -> TypeCheckerS -> QuadruplesState QProgram
+quadruplize p@(Program _ defs) tcEnv = do
+    preprocessed <- lift $ evalStateT (preprocess p tcEnv) initPreprocessS
     modify (`setPreprocessing` preprocessed)
     mapM_ quadruplizeTopDef defs
     prog <- gets qprogram
-    -- liftIO (writeFile "quads.txt" (show prog))
+    liftIO (writeFile "quads.txt" (show prog))
     gets qprogram
 
 
@@ -54,7 +55,6 @@ quadruplizeExtIdent :: ExtIdent -> QuadruplesState ()
 quadruplizeExtIdent (Id pos ident)           = return ()
 quadruplizeExtIdent (ArrId pos ident expr)   = return ()
 quadruplizeExtIdent (AttrId pos expr1 expr2) = return ()
-
 quadruplizeStmt :: Stmt -> QuadruplesState ()
 quadruplizeStmt (Empty pos)                     = return ()
 
@@ -268,68 +268,72 @@ quadruplizeExpr (ERel pos expr1 op expr2) = do
     if isStringReg r1 then do
         quadruplizeStringRel reg r1 r2 op
     else do
-        truey <- getLabel
+        phiLabel <- getLabel
         afterLabel <- getLabel
         addQuad $ Cmp r1 r2
         case op of
-            LTH _ -> addQuad $ Jl truey
-            LE _  -> addQuad $ Jle truey
-            GTH _ -> addQuad $ Jg truey
-            GE _  -> addQuad $ Jge truey
-            EQU _ -> addQuad $ Je truey
-            NE _  -> addQuad $ Jne truey
-        addQuad $ MovV (QBool False) reg
-        addQuad $ Jmp afterLabel
-        addQuad $ Label truey
-        addQuad $ MovV (QBool True) reg
-        addQuad $ Label afterLabel
+            LTH _ -> addQuad $ PhiJl  phiLabel afterLabel reg
+            LE _  -> addQuad $ PhiJle phiLabel afterLabel reg
+            GTH _ -> addQuad $ PhiJg  phiLabel afterLabel reg
+            GE _  -> addQuad $ PhiJge phiLabel afterLabel reg
+            EQU _ -> addQuad $ PhiJe  phiLabel afterLabel reg
+            NE _  -> addQuad $ PhiJne phiLabel afterLabel reg
+        -- addQuad $ MovV (QBool False) re
+        -- addQuad $ Jmp afterLabel
+        -- addQuad $ Label truey
+        -- addQuad $ MovV (QBool True) reg
+        -- addQuad $ Label afterLabel
         return reg
 
 quadruplizeExpr (EAnd pos expr1 expr2)    = do
     reg <- getRegister
-    falsy <- getLabel
-    truey <- getLabel
+    phiLabel <- getLabel
+    onPhiLabel <- getLabel
     afterLabel <- getLabel
     left <- quadruplizeExpr expr1
     f <- getRegister
     addQuad $ MovV (QBool False) f
     addQuad $ Cmp left f
-    addQuad $ Je falsy
+    addQuad $ Je onPhiLabel
     right <- quadruplizeExpr expr2
     f2 <- getRegister
     addQuad $ MovV (QBool False) f2
     addQuad $ Cmp right f2
-    addQuad $ Jne truey
-    addQuad $ Label falsy
-    addQuad $ MovV (QBool False) reg
-    addQuad $ Jmp afterLabel
-    addQuad $ Label truey
-    addQuad $ MovV (QBool True) reg
-    addQuad $ Label afterLabel
+    addQuad $ Jne onPhiLabel
+    -- addQuad $ Label falsy
+    -- addQuad $ MovV (QBool False) reg
+    -- addQuad $ Jmp afterLabel
+    -- addQuad $ Label truey
+    -- addQuad $ MovV (QBool True) reg
+    -- addQuad $ Label afterLabel
+    addQuad $ Label onPhiLabel
+    addQuad $ PhiJne phiLabel afterLabel reg
     return reg
 
 
 quadruplizeExpr (EOr pos expr1 expr2)     = do
     reg <- getRegister
-    falsy <- getLabel
-    truey <- getLabel
+    onPhiLabel <- getLabel
+    phiLabel <- getLabel
     afterLabel <- getLabel
     left <- quadruplizeExpr expr1
     f <- getRegister
     addQuad $ MovV (QBool False) f
     addQuad $ Cmp left f
-    addQuad $ Jne truey
+    addQuad $ Jne onPhiLabel
     right <- quadruplizeExpr expr2
     f2 <- getRegister
     addQuad $ MovV (QBool False) f2
     addQuad $ Cmp right f2
-    addQuad $ Jne truey
-    addQuad $ Label falsy
-    addQuad $ MovV (QBool False) reg
-    addQuad $ Jmp afterLabel
-    addQuad $ Label truey
-    addQuad $ MovV (QBool True) reg
-    addQuad $ Label afterLabel
+    -- addQuad $ Jne truey
+    -- addQuad $ Label falsy
+    -- addQuad $ MovV (QBool False) reg
+    -- addQuad $ Jmp afterLabel
+    -- addQuad $ Label truey
+    -- addQuad $ MovV (QBool True) reg
+    -- addQuad $ Label afterLabel
+    addQuad $ Label onPhiLabel
+    addQuad $ PhiJne phiLabel afterLabel reg
     return reg
 
 

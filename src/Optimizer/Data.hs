@@ -7,6 +7,7 @@ import           Syntax.AbsLattepp
 type OptimizerState = StateT OptimizerS (ExceptT String IO)
 
 newtype OptimizerS = OptimizerS {
+  --todo remove consts use for better value propagation
   consts :: M.Map Ident (PrimType, Value)
 }
 
@@ -33,21 +34,4 @@ castString :: Value -> String
 castString (StrV v) = v
 castString _        = ""
 
-initOptimizerS :: OptimizerS
-initOptimizerS = OptimizerS {
-    consts = M.empty
-}
-
-putConst :: OptimizerS -> Ident -> (PrimType, Value) -> OptimizerS
-putConst s ident x@(t, val) = OptimizerS {
-    consts = M.insert ident x (consts s)
-}
-
-localOptimizerEnv :: OptimizerS -> OptimizerState a -> OptimizerState a
-localOptimizerEnv changedEnv action = do
-  backup <- get
-  put changedEnv
-  result <- action
-  put backup
-  return result
 

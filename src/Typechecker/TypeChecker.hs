@@ -1,45 +1,31 @@
 module Typechecker.TypeChecker where
 
-import           Control.Applicative.Lift       ( )
-import           Control.Exception              ( try )
-import           Control.Monad                  ( unless
-                                                , when
-                                                , zipWithM_
-                                                )
-import           Control.Monad.IO.Class         ( MonadIO(liftIO) )
-import           Control.Monad.Trans.Class      ( )
-import           Control.Monad.Trans.Except     ( ExceptT
-                                                , runExceptT
-                                                )
-import           Control.Monad.Trans.State      ( StateT(runStateT)
-                                                , evalStateT
-                                                , get
-                                                , gets
-                                                , put
-                                                )
-import           Data.List                      ( elemIndex )
-import qualified Data.Map                      as M
-import qualified Data.Set                      as S
-import           Debug.Trace                    ( trace )
-import           GHC.IO                         ( catchException )
+import           Control.Applicative.Lift   ()
+import           Control.Exception          (try)
+import           Control.Monad              (unless, when, zipWithM_)
+import           Control.Monad.IO.Class     (MonadIO (liftIO))
+import           Control.Monad.Trans.Class  ()
+import           Control.Monad.Trans.Except (ExceptT, runExceptT)
+import           Control.Monad.Trans.State  (StateT (runStateT), evalStateT,
+                                             get, gets, put)
+import           Data.List                  (elemIndex)
+import qualified Data.Map                   as M
+import qualified Data.Set                   as S
+import           Debug.Trace                (trace)
+import           GHC.IO                     (catchException)
 import           Syntax.AbsLattepp
 import           Typechecker.Data
-import           Typechecker.Utils              ( checkMain
-                                                , classState
-                                                , defineInheritance
-                                                , dontAllowVoid
-                                                , ensureTypeExists
-                                                , functionState
-                                                , gatherFields
-                                                , gatherHeaders
-                                                , topoSort
-                                                )
+import           Typechecker.Utils          (checkMain, classState,
+                                             defineInheritance, dontAllowVoid,
+                                             ensureTypeExists, functionState,
+                                             gatherFields, gatherHeaders,
+                                             topoSort)
 import           Utils
 
-typeCheck :: Program -> ExceptT String IO ()
+typeCheck :: Program -> ExceptT String IO TypeCheckerS
 typeCheck p = evalStateT (beginCheck p) initTypeCheckerS
 
-beginCheck :: Program -> TypeCheckerState ()
+beginCheck :: Program -> TypeCheckerState TypeCheckerS
 beginCheck (Program _ defs) = do
   mapM_ gatherHeaders defs
   st1 <- get
@@ -49,6 +35,7 @@ beginCheck (Program _ defs) = do
   newDefs <- topoSort defs
   mapM_ gatherFields    newDefs
   mapM_ typeCheckTopDef defs
+  get
 
 ----------------------------------------------------
 typeCheckTopDef :: TopDef -> TypeCheckerState ()

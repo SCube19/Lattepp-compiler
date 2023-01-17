@@ -68,7 +68,8 @@ instance Pretty PrimType where
     pretty (Bool _) = "boolean"
     pretty (Void _) = "void"
 
-
+instance Pretty Arg where
+    pretty (Arg _ t i) = pretty t ++ " " ++ pretty i
 -- ------------------------------------TYPE MANIP--------------------------------------------
 class Raw a where
     raw :: a -> a
@@ -141,3 +142,80 @@ rawVoid = Primitive Nothing $ Void Nothing
 rawFun :: Type -> Type
 rawFun r = Fun Nothing (raw r) []
 rawExtIdent = Id Nothing
+
+
+printProgram :: Program -> String
+printProgram (Program _ defs ) = concatMap printTopDef defs
+
+printTopDef :: TopDef -> String
+printTopDef (FnDef pos ret ident args block)  = pretty ret ++ " " ++ pretty ident ++ "(" ++ intercalate "," (map pretty args) ++ ")\n" ++ printBlock block
+printTopDef (ClassDef pos ident block)        = "class " ++ pretty ident ++ "\n" ++ printClassBlock block
+printTopDef (ExtClassDef pos ident ext block) = "class " ++ pretty ident ++ " extends " ++ pretty ext ++ "\n" ++ printClassBlock block
+
+printBlock :: Block -> String
+printBlock (Block pos stmts) = "{\n" ++ concatMap printStmt stmts ++ "}\n"
+
+printClassBlock :: ClassBlock -> String
+printClassBlock (ClassBlock pos stmts) = "{\n" ++ concatMap printClassStmt stmts ++ "}\n"
+
+printClassStmt :: ClassStmt -> String
+printClassStmt (ClassEmpty pos)                       = ""
+printClassStmt (ClassDecl pos t items)                = pretty t ++ " " ++ intercalate "," (map pretty items) ++ ";\n"
+printClassStmt (ClassMethod pos ret ident args block) = pretty ret ++ " " ++ pretty ident ++ "(" ++ intercalate "," (map pretty args) ++ ")\n" ++ printBlock block
+
+printExtIdent :: ExtIdent -> String
+printExtIdent (Id pos ident)           = pretty ident
+printExtIdent (ArrId pos ident expr)   = "array"
+printExtIdent (AttrId pos expr1 expr2) = "object"
+
+printStmt :: Stmt -> String
+printStmt (Empty pos)                     = ";\n"
+printStmt (BStmt pos block)               = printBlock block
+printStmt (Decl pos t items)              = pretty t ++ " " ++ intercalate "," (map printItem items) ++ ";\n"
+printStmt (Ass pos ident expr)            = pretty ident ++ " = " ++ printExpr expr ++ ";\n"
+printStmt (Incr pos ident)                = pretty ident ++ "++;\n"
+printStmt (Decr pos ident)                = pretty ident ++ "--;\n"
+printStmt (Ret pos expr)                  = "return " ++ printExpr expr ++ ";\n"
+printStmt (VRet pos)                      = "return;\n"
+printStmt (Cond pos expr stmt)            = "if (" ++ printExpr expr ++ ")\n" ++ printStmt stmt
+printStmt (CondElse pos expr stmt1 stmt2) = "if (" ++ printExpr expr ++ ")\n" ++ printStmt stmt1 ++ "else\n" ++ printStmt stmt2
+printStmt (While pos expr stmt)           = "while (" ++ printExpr expr ++ ")\n" ++ printStmt stmt
+printStmt (For pos t ident1 ident2 stmt)  = "for"
+printStmt (SExp pos expr)                 = printExpr expr ++ ";\n"
+
+printItem ::  Item -> String
+printItem (NoInit pos ident)    = pretty ident
+printItem (Init pos ident expr) = pretty ident ++ " = " ++ printExpr expr
+
+printExpr :: Expr -> String
+printExpr (ECast pos ident expr)    = "cast"
+printExpr (ECastPrim pos t expr)    = "cast"
+printExpr (ENewObject pos ident)    = "newobj"
+printExpr (ENewArr pos t expr)      = "newarr"
+printExpr (ENull pos)               = "null"
+printExpr (EObject pos expr1 expr2) = "obj."
+printExpr (EArr pos ident expr)     = "arr[]"
+printExpr (EVar pos ident)          = pretty ident
+printExpr (ELitInt pos integer)     = show integer
+printExpr (ELitTrue pos)            = "true"
+printExpr (ELitFalse pos)           = "false"
+printExpr (EString pos s)           = s
+printExpr (EApp pos ident exprs)    = pretty ident ++ "(" ++ intercalate "," (map printExpr exprs) ++ ")"
+printExpr (Neg pos expr)            = "-" ++ printExpr expr
+printExpr (Not pos expr)            = "!" ++ printExpr expr
+printExpr (EMul pos expr1 op expr2) = printExpr expr1 ++ (case op of
+   Times ma -> "*"
+   Div ma   -> "/"
+   Mod ma   -> "%") ++ printExpr expr2
+printExpr (EAdd pos expr1 op expr2) = printExpr expr1 ++ (case op of
+   Plus ma  -> "+"
+   Minus ma -> "-") ++ printExpr expr2
+printExpr (ERel pos expr1 op expr2) = printExpr expr1 ++ (case op of
+  LTH ma -> "<"
+  LE ma  -> "<="
+  GTH ma -> ">"
+  GE ma  -> ">="
+  EQU ma -> "=="
+  NE ma  -> "!=") ++ printExpr expr2
+printExpr (EAnd pos expr1 expr2)    = printExpr expr1 ++ "&&" ++ printExpr expr2
+printExpr (EOr pos expr1 expr2)     = printExpr expr1 ++ "||" ++ printExpr expr2

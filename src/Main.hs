@@ -7,7 +7,8 @@ import           Syntax.AbsLattepp                 (Program)
 import           Syntax.LexLattepp                 (tokens)
 import           Syntax.ParLattepp                 (myLexer, pProgram)
 import           System.Directory.Internal.Prelude (exitFailure, getArgs,
-                                                    hPutStr, hPutStrLn, stderr)
+                                                    hPutStr, hPutStrLn, stderr,
+                                                    stdout)
 import           System.Exit                       (exitSuccess)
 import           System.FilePath                   (replaceExtension,
                                                     takeBaseName, takeDirectory)
@@ -15,7 +16,7 @@ import           System.IO                         ()
 import           System.Process                    (callCommand)
 import           Text.XHtml                        (object)
 import           Typechecker.TypeChecker           (checkReturn, typeCheck)
-import           Utils                             (exitError)
+import           Utils                             (exitError, printProgram)
 
 
 tokenize :: String -> ExceptT String IO Program
@@ -26,12 +27,12 @@ tokenize s = case pProgram $ myLexer s of
 runProgram :: String -> ExceptT String IO String
 runProgram s = do
   tokens <- tokenize s
-  typeCheck tokens
+  tcEnv <- typeCheck tokens
   optimized <- optimize tokens
-  cleaned <- cleanDeadCode tokens --optimized
+  cleaned <- cleanDeadCode tokens
   checkReturn cleaned
   liftIO $ hPutStrLn stderr "OK"
-  compile cleaned
+  compile cleaned tcEnv
 
 dump :: String -> String -> IO ()
 dump file asm = do

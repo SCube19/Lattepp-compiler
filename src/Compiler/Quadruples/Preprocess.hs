@@ -1,10 +1,18 @@
 module Compiler.Quadruples.Preprocess where
 
 import           Compiler.Quadruples.Predata
+import           Control.Monad.Cont          (MonadIO (liftIO))
+import           Control.Monad.RWS           (get, gets)
+import qualified Data.Map                    as M
 import           Syntax.AbsLattepp
+import           Typechecker.Data            (TypeCheckerS)
 
-preprocess :: Program -> PreprocessState PreprocessS
-preprocess p = return initPreprocessS
+preprocess :: Program -> TypeCheckerS -> PreprocessState PreprocessS
+preprocess p tcEnv = do
+    gatherFromTc tcEnv
+    st <- gets preclasses
+    --liftIO $ print (map snd (M.toList st))
+    return $ initPreprocessS
 
 preprocessTopDef :: TopDef -> PreprocessState ()
 preprocessTopDef (FnDef pos ret ident args block)  = return ()

@@ -12,10 +12,11 @@ import qualified Data.Map                       as M
 import           Data.Maybe                     (fromMaybe)
 import qualified Data.Set                       as S
 import           Syntax.AbsLattepp              (Program, Program' (Program))
+import           Typechecker.Data               (TypeCheckerS)
 
-compile :: Program -> ExceptT String IO String
-compile p@(Program _ defs) =  do
-    quads <- evalStateT (quadruplize p) (initQuadruplesS defs)
+compile :: Program -> TypeCheckerS -> ExceptT String IO String
+compile p@(Program _ defs) tcEnv =  do
+    quads <- evalStateT (quadruplize p tcEnv) (initQuadruplesS defs)
     asm <- evalStateT (compileQuads quads) initCompilerS
     return $ concatMap show asm
 
@@ -137,7 +138,43 @@ compileQuad (Quad.Jle l1)                         =
 compileQuad (Quad.Jl l1)                          =
     addInstr $ X86.Jl (AsmLabel $ labelref l1)
 
-compileQuad (Quad.Neg r1 res)                      = do
+compileQuad (Quad.PhiJe l1 l2 res)                   = do
+    regs <- gets mapping
+    let asmres = fromMaybe undefined (M.lookup res regs)
+    addInstr $ X86.Je (AsmLabel $ labelref l1)
+    compilePhi asmres (qtoasmlbl l1) (qtoasmlbl l2)
+
+compileQuad (Quad.PhiJne l1 l2 res)                  = do
+    regs <- gets mapping
+    let asmres = fromMaybe undefined (M.lookup res regs)
+    addInstr $ X86.Jne (AsmLabel $ labelref l1)
+    compilePhi asmres (qtoasmlbl l1) (qtoasmlbl l2)
+
+compileQuad (Quad.PhiJge l1 l2 res)                  = do
+    regs <- gets mapping
+    let asmres = fromMaybe undefined (M.lookup res regs)
+    addInstr $ X86.Jge (AsmLabel $ labelref l1)
+    compilePhi asmres (qtoasmlbl l1) (qtoasmlbl l2)
+
+compileQuad (Quad.PhiJg l1 l2 res)                   = do
+    regs <- gets mapping
+    let asmres = fromMaybe undefined (M.lookup res regs)
+    addInstr $ X86.Jg (AsmLabel $ labelref l1)
+    compilePhi asmres (qtoasmlbl l1) (qtoasmlbl l2)
+
+compileQuad (Quad.PhiJle l1 l2 res)                  = do
+    regs <- gets mapping
+    let asmres = fromMaybe undefined (M.lookup res regs)
+    addInstr $ X86.Jle (AsmLabel $ labelref l1)
+    compilePhi asmres (qtoasmlbl l1) (qtoasmlbl l2)
+
+compileQuad (Quad.PhiJl l1 l2 res)                   = do
+    regs <- gets mapping
+    let asmres = fromMaybe undefined (M.lookup res regs)
+    addInstr $ X86.Jl (AsmLabel $ labelref l1)
+    compilePhi asmres (qtoasmlbl l1) (qtoasmlbl l2)
+
+compileQuad (Quad.Neg r1 res)                     = do
     regs <- gets mapping
     let asmres = fromMaybe undefined (M.lookup res regs)
     let asmr1 = fromMaybe undefined (M.lookup r1 regs)
@@ -242,32 +279,28 @@ compileQuad (Quad.VoidCall name args)             = do
 compileQuad (Quad.VCall name args r1 off1 res)    = return ()
 compileQuad (Quad.Vtab r1 t)                      = return ()
 
+compilePhi :: AsmOperand -> AsmLabel -> AsmLabel -> CompilerState ()
+compilePhi op l afterL = do
+    addInstr $ X86.Mov DWord op (ValOp $ VInt 0)
+    addInstr $ X86.Jmp afterL
+    addInstr $ X86.ILabel l
+    addInstr $ X86.Mov DWord op (ValOp $ VInt (-1))
+    addInstr $ X86.ILabel afterL
+
 ----------------------------------------------------------------------------
 allocMemory :: [Quadruple] -> AllocatorState (MemoryAllocation, Int)
 allocMemory qs = do
-    let consts = getConsts qs S.empty
-    defineIntervals qs consts 0
+
+    defineIntervals qs 0
     makeAllocation qs 0
     alloc <- gets allocation
     size <- gets allocSize
     return (alloc, size)
 
 
-getConsts :: [Quadruple] -> S.Set Register -> S.Set Register
-getConsts [] s = s
-getConsts (q:qs) s =
-    let mreg = extractResult q in
-    case mreg of
-        Nothing -> getConsts qs s
-        Just reg ->
-            if S.member reg s then
-                getConsts qs (S.delete reg s)
-            else
-                getConsts qs (S.insert reg s)
-
-defineIntervals :: [Quadruple] -> S.Set Register -> Int -> AllocatorState () --fix
-defineIntervals [] _ _ = return ()
-defineIntervals (q:qs) consts i = do
+defineIntervals :: [Quadruple] -> Int -> AllocatorState ()
+defineIntervals [] _ = return ()
+defineIntervals (q:qs) i = do
     ints <- gets integers
     let all = filter (\x -> not $ S.member x ints) (extractAll q)
     let result = extractResult q
@@ -275,13 +308,11 @@ defineIntervals (q:qs) consts i = do
       Nothing -> _defineIntervals all i
       Just reg ->
         case q of
-            MovV v _ ->
-                if S.member reg consts then do
+            MovV v _ -> do
                     allocate reg (ValOp (VInt $ qvalueInt v))
                     _defineIntervals all i
-                else _defineIntervals all i
             _ -> _defineIntervals all i
-    defineIntervals qs consts (i + 1)
+    defineIntervals qs (i + 1)
 
 _defineIntervals :: [Register] -> Int -> AllocatorState ()
 _defineIntervals rs i = do
