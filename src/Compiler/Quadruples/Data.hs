@@ -292,7 +292,8 @@ data QClass = QClass {
     cident  :: String,
     fields  :: M.Map String QCField,
     methods :: M.Map String QFun,
-    super   :: Maybe QClass
+    super   :: Maybe QClass,
+    vtable  :: Maybe QLabel
 }
 
 data QCField = QCField {
@@ -321,7 +322,8 @@ classDefPreToQClass c cs =
     methods = preFuncsToQFun (Pre.methods c),
     super = case superClass of
                 Nothing -> Nothing
-                Just s -> M.lookup (Pre.ident s) cs Control.Applicative.<|> undefined
+                Just s -> M.lookup (Pre.ident s) cs Control.Applicative.<|> undefined,
+    vtable = Nothing
 }
 
 getOrd :: (String, (Int, Pre.ClassDefPre)) -> Int
@@ -352,7 +354,7 @@ newtype QLabel = QLabel Int deriving (Eq, Ord)
 
 data QIndex = QIndex Int Bool
 
-newtype Offset = Offset Int
+type Offset = Int
 
 data QValue = QBool Bool | QInt Int
 
@@ -407,6 +409,7 @@ data Quadruple =
     Call String [Register] Register |
     VoidCall String [Register] |
     VCall String [Register] Register Offset Register |
+    VoidVCall String [Register] Register Offset |
     Vtab Register Type
 
 
@@ -449,6 +452,7 @@ extractResult (Alloc _)              = Nothing
 extractResult (Call _ _ r)           = Just r
 extractResult (VoidCall _ _)         = Nothing
 extractResult (VCall _ _ _ _ r)      = Just r
+extractResult VoidVCall {}           = Nothing
 extractResult (Vtab _ _)             = Nothing
 
 extractAll :: Quadruple -> [Register]
@@ -490,6 +494,7 @@ extractAll (Alloc _)                 = []
 extractAll (Call _ rs r1)            = r1 : rs
 extractAll (VoidCall _ rs)           = rs
 extractAll (VCall _ rs r1 _ r2)      = r1 : r2 : rs
+extractAll (VoidVCall _ rs r1 _)     = r1 :rs
 extractAll (Vtab r1 _)               = [r1]
 
 instance Show QLabel where
@@ -497,9 +502,6 @@ instance Show QLabel where
 
 instance Show QIndex where
     show (QIndex i _) = "i" ++ show i
-
-instance Show Offset where
-    show (Offset o) = show o
 
 instance Show QValue where
     show x@(QBool b) = show $ qvalueInt x
@@ -563,7 +565,8 @@ instance Show Quadruple where
     show (Alloc index) = "alloc " ++ show index ++ "\n"
     show (Call label args result) = show result ++ " = call " ++ label ++ "(" ++ intercalate "," (map show args) ++ ")" ++ "\n"
     show (VoidCall label args) = "voidcall " ++ label ++ "(" ++ intercalate "," (map show args) ++ ")" ++ "\n"
-    show (VCall label args result _ _) = show result ++ " = vcall " ++ label ++ "(" ++ intercalate "," (map show args)++ ")" ++ "\n"
+    show (VCall label args this _ result) = show result ++ " = " ++ show this ++ ".vcall " ++ label ++ "(" ++ intercalate "," (map show args)++ ")" ++ "\n"
+    show (VoidVCall label args this _ ) = show this ++ ".vcall " ++ label ++ "(" ++ intercalate "," (map show args)++ ")" ++ "\n"
     show (Vtab r1 type1) = "vt " ++ show type1 ++ ", " ++ show r1 ++ "\n"
 
 

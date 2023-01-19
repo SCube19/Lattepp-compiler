@@ -16,11 +16,11 @@ g:
 	mov DWORD eax, [ebp+8]
 	mov DWORD [ebp+-4], eax
 	mov DWORD eax, [ebp+-4]
-	mov DWORD [ebp+-8], eax
+	mov DWORD ebx, eax
 	mov DWORD eax, 10
-	add DWORD eax, [ebp+-8]
-	mov DWORD [ebp+-8], eax
-	mov DWORD eax, [ebp+-8]
+	add DWORD eax, ebx
+	mov DWORD ebx, eax
+	mov DWORD eax, ebx
 	leave
 	ret
 h:
@@ -30,11 +30,11 @@ h:
 	mov DWORD eax, [ebp+8]
 	mov DWORD [ebp+-4], eax
 	mov DWORD eax, [ebp+-4]
-	mov DWORD [ebp+-8], eax
+	mov DWORD ebx, eax
 	mov DWORD eax, 32
-	add DWORD eax, [ebp+-8]
-	mov DWORD [ebp+-8], eax
-	mov DWORD eax, [ebp+-8]
+	add DWORD eax, ebx
+	mov DWORD ebx, eax
+	mov DWORD eax, ebx
 	leave
 	ret
 main:
@@ -43,38 +43,50 @@ main:
 	sub DWORD esp, 8
 	sub DWORD esp, 12
 	push DWORD 8
+	push DWORD ecx
+	push DWORD edx
 	call h
+	pop DWORD edx
+	pop DWORD ecx
 	add DWORD esp, 4
-	mov DWORD [ebp+-4], eax
-	mov DWORD eax, [ebp+-4]
+	mov DWORD ebx, eax
+	mov DWORD eax, ebx
 	imul DWORD eax, 2
-	mov DWORD [ebp+-4], eax
-	mov DWORD eax, [ebp+-4]
+	mov DWORD ebx, eax
+	mov DWORD eax, ebx
 	cdq
 	mov DWORD ebx, 2
 	idiv DWORD ebx
-	mov DWORD [ebp+-4], eax
+	mov DWORD ebx, eax
 	mov DWORD eax, 12
-	add DWORD eax, [ebp+-4]
-	mov DWORD [ebp+-4], eax
+	add DWORD eax, ebx
+	mov DWORD ebx, eax
 	sub DWORD esp, 12
 	push DWORD 8
+	push DWORD ecx
+	push DWORD edx
 	call h
+	pop DWORD edx
+	pop DWORD ecx
 	add DWORD esp, 4
-	mov DWORD [ebp+-8], eax
-	mov DWORD eax, [ebp+-4]
-	add DWORD eax, [ebp+-8]
-	mov DWORD [ebp+-8], eax
+	mov DWORD ecx, eax
+	mov DWORD eax, ebx
+	add DWORD eax, ecx
+	mov DWORD ecx, eax
 	sub DWORD esp, 12
 	push DWORD 0
+	push DWORD ecx
+	push DWORD edx
 	call g
+	pop DWORD edx
+	pop DWORD ecx
 	add DWORD esp, 4
-	mov DWORD [ebp+-4], eax
-	mov DWORD eax, [ebp+-8]
-	add DWORD eax, [ebp+-4]
-	mov DWORD [ebp+-4], eax
+	mov DWORD ebx, eax
+	mov DWORD eax, ecx
+	add DWORD eax, ebx
+	mov DWORD ebx, eax
 	sub DWORD esp, 12
-	push DWORD [ebp+-4]
+	push DWORD ebx
 	call printInt
 	add DWORD esp, 4
 	mov DWORD eax, 0

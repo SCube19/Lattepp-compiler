@@ -1,5 +1,5 @@
 module Compiler.Data where
-import           Compiler.Quadruples.Data   (QLabel (QLabel), Register)
+import           Compiler.Quadruples.Data   (QClass, QLabel (QLabel), Register)
 import           Control.Monad.Trans.Except (ExceptT)
 import           Control.Monad.Trans.State  (StateT, gets, modify)
 import           Data.List                  (intercalate)
@@ -12,35 +12,40 @@ type CompilerState = StateT CompilerS (ExceptT String IO)
 data CompilerS = CompilerS {
     instructions :: [AsmInstr],
     mapping      :: MemoryAllocation,
-    usedMem      :: Int
+    usedMem      :: Int,
+    classes      :: M.Map String QClass
 }
 
-initCompilerS :: CompilerS
-initCompilerS = CompilerS {
+initCompilerS :: M.Map String QClass -> CompilerS
+initCompilerS cs = CompilerS {
     instructions = [],
     usedMem = 0,
-    mapping = M.empty
+    mapping = M.empty,
+    classes = cs
 }
 
 addInstr :: AsmInstr -> CompilerState ()
 addInstr i = modify (\s -> CompilerS {
     instructions = instructions s ++ [i],
     mapping = mapping s,
-    usedMem = usedMem s
+    usedMem = usedMem s,
+    classes = classes s
 })
 
 setAllocation :: MemoryAllocation -> Int -> CompilerState ()
 setAllocation al mem = modify (\s -> CompilerS {
     instructions = instructions s,
     usedMem = mem,
-    mapping = al
+    mapping = al,
+    classes = classes s
 })
 
 resetAllocation :: CompilerState ()
 resetAllocation = modify (\s -> CompilerS {
     instructions = instructions s,
     usedMem = 0,
-    mapping = M.empty
+    mapping = M.empty,
+    classes = classes s
 })
 
 newtype AsmLabel = AsmLabel String
@@ -114,6 +119,7 @@ data AsmInstr =
     Neg OpSize AsmOperand |
     Not OpSize AsmOperand |
     Push OpSize AsmOperand |
+    Pop OpSize AsmOperand |
     Ret |
     Clear OpSize AsmOperand |
     Section String |
@@ -184,6 +190,7 @@ instance Show AsmInstr where
     show (Neg s o1)    = "\tneg " ++ show s ++ " " ++ show o1 ++ "\n"
     show (Not s o1)    = "\tnot " ++ show s ++ " " ++ show o1 ++ "\n"
     show (Push s o1)   = "\tpush " ++ show s ++ " " ++ show o1 ++ "\n"
+    show (Pop s o1)   = "\tpop " ++ show s ++ " " ++ show o1 ++ "\n"
     show Ret           = "\tret\n"
     show (Clear s o1)  = "\txor " ++ show s ++ " " ++ show o1 ++ ", " ++ show o1 ++ "\n"
     show (Section s)   = "section ." ++ s ++ "\n"
@@ -214,6 +221,9 @@ data AllocatorS = AllocatorS {
 }
 
 type MemoryAllocation = M.Map Register AsmOperand
+
+initRegPool :: [AsmOperand]
+initRegPool = [RegOp EBX, RegOp ECX, RegOp EDX, RegOp ESI, RegOp EDI]
 
 initAllocatorS :: Int -> AllocatorS
 initAllocatorS init = AllocatorS {

@@ -11,13 +11,15 @@ import           Data.List                      (delete)
 import qualified Data.Map                       as M
 import           Data.Maybe                     (fromMaybe)
 import qualified Data.Set                       as S
-import           Syntax.AbsLattepp              (Program, Program' (Program))
+import           Syntax.AbsLattepp              (Ident (Ident), Program,
+                                                 Program' (Program),
+                                                 Type' (ObjectType))
 import           Typechecker.Data               (TypeCheckerS)
 
 compile :: Program -> TypeCheckerS -> ExceptT String IO String
 compile p@(Program _ defs) tcEnv =  do
     quads <- evalStateT (quadruplize p tcEnv) (initQuadruplesS defs)
-    asm <- evalStateT (compileQuads quads) initCompilerS
+    asm <- evalStateT (compileQuads quads) (initCompilerS $ (Quad.classes quads))
     return $ concatMap show asm
 
 compileQuads :: QProgram -> CompilerState [AsmInstr]
@@ -77,8 +79,8 @@ compileQuad (Quad.Div r1 r2 res)                  = do
     addInstr $ X86.Mov DWord (RegOp EAX) asmr1
     addInstr Cdq
     if isAsmValue asmr2 then do
-        addInstr $ X86.Mov DWord (RegOp EBX) asmr2
-        addInstr $ X86.Div DWord (RegOp EBX)
+        addInstr $ X86.Mov DWord (RegOp ECX) asmr2
+        addInstr $ X86.Div DWord (RegOp ECX)
     else
         addInstr $ X86.Div DWord asmr2
     addInstr $ X86.Mov DWord asmres (RegOp EAX)
@@ -100,8 +102,8 @@ compileQuad (Quad.Mod r1 r2 res)                  = do
     addInstr $ X86.Mov DWord (RegOp EAX) asmr1
     addInstr Cdq
     if isAsmValue asmr2 then do
-        addInstr $ X86.Mov DWord (RegOp EBX) asmr2
-        addInstr $ X86.Div DWord (RegOp EBX)
+        addInstr $ X86.Mov DWord (RegOp ECX) asmr2
+        addInstr $ X86.Div DWord (RegOp ECX)
     else
         addInstr $ X86.Div DWord asmr2
     addInstr $ X86.Mov DWord asmres (RegOp EDX)
@@ -112,8 +114,8 @@ compileQuad (Quad.Cmp r1 r2)                      = do
     let asmr2 = fromMaybe undefined (M.lookup r2 regs)
     addInstr $ X86.Mov DWord (RegOp EAX) asmr2
     if isAsmValue asmr1 then do
-        addInstr $ X86.Mov DWord (RegOp EBX) asmr1
-        addInstr $ X86.Cmp DWord (RegOp EBX) (RegOp EAX)
+        addInstr $ X86.Mov DWord (RegOp ECX) asmr1
+        addInstr $ X86.Cmp DWord (RegOp ECX) (RegOp EAX)
     else
         addInstr $ X86.Cmp DWord asmr1 (RegOp EAX)
 
@@ -238,7 +240,19 @@ compileQuad (Quad.LoadArg (QIndex i _))                  = do
     addInstr $ X86.Mov DWord (RegOp EAX) (MemOp $ RegOff EBP (4 * (i + 2)))
     addInstr $ X86.Mov DWord (MemOp $ RegOff EBP (-4 * (i + 1))) (RegOp EAX)
 
-compileQuad (Quad.LoadIndir r1 off1 r2 off2 res)  = return ()
+compileQuad (Quad.LoadIndir r1 off1 r2 off2 res)  = do
+    regs <- gets mapping
+    let asmres = fromMaybe undefined (M.lookup res regs)
+    let asmr1 = fromMaybe undefined (M.lookup r1 regs)
+    let asmr2 = fromMaybe undefined (M.lookup r2 regs)
+    addInstr $ X86.Mov DWord (RegOp EAX) asmr1
+    case asmr2 of
+      ValOp (VInt 0) ->  addInstr $ X86.Mov DWord (RegOp EAX) (MemOp $ RegOff EAX off1)
+      _ -> do
+        addInstr $ X86.Mov DWord (RegOp ECX) asmr2
+        addInstr $ X86.Mov DWord (RegOp EAX) (MemOp $ IndirMem EAX off1 ECX off2)
+    addInstr $ X86.Mov DWord asmres (RegOp EAX)
+
 compileQuad (Quad.LoadLbl l1 res)                 = do
     regs <- gets mapping
     let asmres = fromMaybe undefined (M.lookup res regs)
@@ -250,8 +264,21 @@ compileQuad (Quad.Store r1 (QIndex i _))              = do
     addInstr $ X86.Mov DWord (RegOp EAX) asmr1
     addInstr $ X86.Mov DWord (MemOp $ RegOff EBP (-4 * (i + 1))) (RegOp EAX)
 
-compileQuad (Quad.StoreIndir r1 off1 r2 off2 res) = return ()
+compileQuad (Quad.StoreIndir r1 off1 r2 off2 val) = do
+    regs <- gets mapping
+    let asmval = fromMaybe undefined (M.lookup val regs)
+    let asmr1 = fromMaybe undefined (M.lookup r1 regs)
+    let asmr2 = fromMaybe undefined (M.lookup r2 regs)
+    addInstr $ X86.Mov DWord (RegOp ECX) asmr1
+    addInstr $ X86.Mov DWord (RegOp EAX) asmval
+    case asmr2 of
+      ValOp (VInt 0) -> addInstr $ X86.Mov DWord (MemOp $ RegOff ECX off1) (RegOp EAX)
+      _ -> do
+        addInstr $ X86.Mov DWord (RegOp EDX) asmr2
+        addInstr $ X86.Mov DWord (MemOp $ IndirMem ECX off1 EDX off2) (RegOp EAX)
+
 compileQuad (Quad.Alloc index)                    = return ()
+
 compileQuad (Quad.Call name args res)             = do
     regs <- gets mapping
     let asmres = fromMaybe undefined (M.lookup res regs)
@@ -276,8 +303,53 @@ compileQuad (Quad.VoidCall name args)             = do
     addInstr $ X86.Call (CLabel $ AsmLabel name)
     addInstr $ X86.Add DWord (RegOp ESP) (ValOp $ VInt (4 * length args))
 
-compileQuad (Quad.VCall name args r1 off1 res)    = return ()
-compileQuad (Quad.Vtab r1 t)                      = return ()
+compileQuad (Quad.VCall name args this off1 res) = do
+    regs <- gets mapping
+    let asmres = fromMaybe undefined (M.lookup res regs)
+    let asmthis = fromMaybe undefined (M.lookup this regs)
+    let alignment = 4 * ((4 - (length args `mod` 4)) `mod` 4)
+    addInstr $ X86.Mov DWord (RegOp EAX) asmthis
+    addInstr $ X86.Mov DWord (RegOp EAX) (MemOp $ RegOff EAX 0)
+    addInstr $ X86.Mov DWord (RegOp EAX) (MemOp $ RegOff EAX off1)
+    addInstr $ X86.Sub DWord (RegOp ESP) (ValOp $ VInt alignment)
+    mapM_ (\r -> do
+        let asmr = fromMaybe undefined (M.lookup r regs)
+        addInstr $ Push DWord asmr
+        ) (reverse args)
+    addInstr $ X86.Call (CLabel $ AsmLabel name)
+    addInstr $ X86.Add DWord (RegOp ESP) (ValOp $ VInt (4 * length args))
+    addInstr $ X86.Mov DWord asmres (RegOp EAX)
+
+compileQuad (Quad.VoidVCall name args this off1) = do
+    regs <- gets mapping
+    let asmthis = fromMaybe undefined (M.lookup this regs)
+    let alignment = 4 * ((4 - (length args `mod` 4)) `mod` 4)
+    addInstr $ X86.Mov DWord (RegOp EAX) asmthis
+    addInstr $ X86.Mov DWord (RegOp EAX) (MemOp $ RegOff EAX 0)
+    addInstr $ X86.Mov DWord (RegOp EAX) (MemOp $ RegOff EAX off1)
+    addInstr $ X86.Sub DWord (RegOp ESP) (ValOp $ VInt alignment)
+    mapM_ (\r -> do
+        let asmr = fromMaybe undefined (M.lookup r regs)
+        addInstr $ Push DWord asmr
+        ) (reverse args)
+    addInstr $ X86.Call (CLabel $ AsmLabel name)
+    addInstr $ X86.Add DWord (RegOp ESP) (ValOp $ VInt (4 * length args))
+
+compileQuad (Quad.Vtab r1 t) = do
+    classes <- gets X86.classes
+    case t of
+      ObjectType _ (Ident name) -> do
+            case M.lookup name classes of
+              Nothing -> return ()
+              Just qc ->
+                case Quad.vtable qc of
+                    Nothing -> return ()
+                    Just vl -> do
+                        regs <- gets mapping
+                        let asmr1 = fromMaybe undefined (M.lookup r1 regs)
+                        addInstr $ X86.Mov DWord (RegOp EAX) asmr1
+                        addInstr $ X86.Mov DWord (MemOp $ RegOff EAX 0) (ValOp $ VLabel (qtoasmlbl vl))
+      _ -> return ()
 
 compilePhi :: AsmOperand -> AsmLabel -> AsmLabel -> CompilerState ()
 compilePhi op l afterL = do
@@ -290,7 +362,6 @@ compilePhi op l afterL = do
 ----------------------------------------------------------------------------
 allocMemory :: [Quadruple] -> AllocatorState (MemoryAllocation, Int)
 allocMemory qs = do
-
     defineIntervals qs 0
     makeAllocation qs 0
     alloc <- gets allocation

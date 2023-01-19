@@ -17,8 +17,6 @@ quadruplize :: Program -> TypeCheckerS -> QuadruplesState QProgram
 quadruplize p@(Program _ defs) tcEnv = do
     preprocessing <- lift $ evalStateT (preprocess p tcEnv) initPreprocessS
     convertPreprocessing preprocessing
-    q <- gets qprogram
-    -- liftIO $ putStrLn $ concatMap show (classes q)
     mapM_ quadruplizeTopDef defs
     prog <- gets qprogram
     -- liftIO (writeFile "quads.txt" (show prog))
