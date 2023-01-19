@@ -28,7 +28,7 @@ import           Typechecker.Data           (ClassDefS,
                                              addAttrs, addClass, addFun,
                                              addMethod, emptyScope,
                                              setExpectedReturnType, setSelf,
-                                             setTypes)
+                                             setTypes, updateOrd)
 import           Utils                      (Raw (raw), firstDuplicateIndex,
                                              getArgIdent, getArgType, rawFun,
                                              rawInt, rawVoid, throwException)
@@ -79,14 +79,14 @@ gatherHeaders (ClassDef pos ident block) = do
    st <- get
    case M.lookup ident (classEnv st) of
       Nothing -> do
-         put $ addClass st ident Nothing pos
+         put $ addClass st ident Nothing pos 0
       Just _ -> throwException $ ClassRedeclarationException pos ident
 
 gatherHeaders (ExtClassDef pos ident ext block) = do
    st <- get
    case M.lookup ident (classEnv st) of
       Nothing -> do
-         put $ addClass st ident Nothing pos
+         put $ addClass st ident Nothing pos 0
       Just _ -> throwException $ ClassRedeclarationException pos ident
 
 checkMain :: TypeCheckerS -> TypeCheckerState ()
@@ -106,7 +106,7 @@ defineInheritance (ExtClassDef pos ident ext block) = do
    st <- get
    case M.lookup ext (classEnv st) of
       Nothing -> throwException $ UndefinedTypeException pos (ObjectType pos ext)
-      Just _ -> put $ addClass st ident (Just ext) pos
+      Just _ -> put $ addClass st ident (Just ext) pos 0
 
 
 _topoSort :: [(TopDef, Int)] -> TypeCheckerState [TopDef]
@@ -115,7 +115,7 @@ _topoSort defs = return $ map fst (sortBy (compare `on` snd) defs)
 topoSort :: [TopDef] -> TypeCheckerState [TopDef]
 topoSort defs = do
     env <- gets classEnv
-    let classes = map (\(i, ((ext, pos, _), defs)) -> (i, ext, pos)) (M.toList env)
+    let classes = map (\(i, ((ext, pos, _, _), defs)) -> (i, ext, pos)) (M.toList env)
     checkCycle [] classes (head classes)
     depthMap <- prepareDepthMap
     _topoSort (map (`prepareDepth` depthMap) defs)
@@ -135,7 +135,7 @@ doLookups (i:is) = do
     env <- gets classEnv
     case M.lookup i env of
         Nothing -> undefined
-        Just ((_, _, childs), _) -> do
+        Just ((_, _, _, childs), _) -> do
             res <- doLookups is
             return $ (i, childs) : res
 
@@ -150,9 +150,9 @@ _prepareDepthMap depth c@(i, childs)  = do
 prepareDepthMap :: TypeCheckerState (Map Ident Int)
 prepareDepthMap = do
     env <- gets classEnv
-    let grandpas = map (\(i, ((_, _, childs), _)) -> (i, childs)) $ filter (\c -> case c of
-                                                                                    (_, ((Nothing, _, _), _)) -> True
-                                                                                    _ -> False) (M.toList env)
+    let grandpas = map (\(i, ((_, _, _, childs), _)) -> (i, childs)) $ filter (\c -> case c of
+                                                                            (_, ((Nothing, _, _, _), _)) -> True
+                                                                            _ -> False) (M.toList env)
     res <- concatMapM (_prepareDepthMap 0) grandpas
     return $ M.fromList res
 
@@ -167,9 +167,12 @@ prepareDepth c@(ExtClassDef pos ident ext block) m =
 gatherFields :: TopDef -> TypeCheckerState ()
 gatherFields FnDef {}                          = return ()
 
-gatherFields (ClassDef pos ident block)        = gatherFieldsBlock block ident
+gatherFields (ClassDef pos ident block)        = do
+    gatherFieldsBlock block ident
 
-gatherFields (ExtClassDef pos ident ext block) = gatherFieldsBlock block ident
+gatherFields (ExtClassDef pos ident ext block) = do
+    updateOrd ident
+    gatherFieldsBlock block ident
 
 gatherFieldsBlock :: ClassBlock -> Ident -> TypeCheckerState ()
 gatherFieldsBlock (ClassBlock pos stmts) c =

@@ -1,8 +1,11 @@
 module Compiler.Quadruples.Data where
+import           Compiler.Quadruples.Predata (PreprocessS)
 import qualified Compiler.Quadruples.Predata as Pre
+import qualified Control.Applicative
 import           Control.Monad.Trans.Except  (ExceptT)
 import           Control.Monad.Trans.State   (StateT, get, gets, modify, put)
-import           Data.List                   (intercalate)
+import           Data.Function               (on)
+import           Data.List                   (intercalate, sortBy)
 import qualified Data.Map                    as M
 import           Data.Maybe                  (fromJust, fromMaybe, isNothing)
 import           Debug.Trace                 (trace)
@@ -15,13 +18,12 @@ import           Utils                       (Raw (raw), rawStr)
 
 type QuadruplesState = StateT QuadrupleS (ExceptT String IO)
 data QuadrupleS = QuadrupleS {
-    preprocessing :: Pre.PreprocessS,
-    qprogram      :: QProgram,
-    maxLocals     :: Int,
-    currentFun    :: Maybe String,
-    nextReg       :: Register,
-    nextLabel     :: QLabel,
-    localStore    :: LocalStore
+    qprogram   :: QProgram,
+    maxLocals  :: Int,
+    currentFun :: Maybe String,
+    nextReg    :: Register,
+    nextLabel  :: QLabel,
+    localStore :: LocalStore
 }
 
 data LocalStore = LocalStore {
@@ -78,7 +80,6 @@ predefinedFuncs = M.fromList [
 
 initQuadruplesS :: [TopDef] -> QuadrupleS
 initQuadruplesS defs = QuadrupleS {
-    preprocessing = Pre.initPreprocessS,
     qprogram = QProgram {
         classes = M.empty,
         funcs = M.fromList $ gatherFuncs defs [],
@@ -94,12 +95,11 @@ initQuadruplesS defs = QuadrupleS {
 gatherFuncs :: [TopDef] -> [(String, QFun)] -> [(String, QFun)]
 gatherFuncs [] fs = fs
 gatherFuncs (def:defs) fs = case def of
-  FnDef _ t (Ident id) _ _ -> gatherFuncs defs ((id, QFun {fident = id, ret = t, localcount = 0, body = []}):fs)
+  FnDef _ t (Ident id) _ _ -> gatherFuncs defs ((id, QFun {fident = id, ret = t, localcount = 0, body = [], offset = 0}):fs)
   _ -> gatherFuncs defs fs
 
 setStore :: QuadrupleS -> LocalStore -> QuadrupleS
 setStore s ls = QuadrupleS {
-    preprocessing = preprocessing s,
     qprogram = qprogram s,
     maxLocals = maxLocals s,
     currentFun = currentFun s,
@@ -108,20 +108,8 @@ setStore s ls = QuadrupleS {
     localStore = ls
 }
 
-setPreprocessing :: QuadrupleS -> Pre.PreprocessS -> QuadrupleS
-setPreprocessing s prep = QuadrupleS {
-    preprocessing = prep,
-    qprogram = qprogram s,
-    maxLocals = maxLocals s,
-    currentFun = currentFun s,
-    nextReg = nextReg s,
-    nextLabel = nextLabel s,
-    localStore = localStore s
-}
-
 setMaxLocals :: QuadrupleS -> Int -> QuadrupleS
 setMaxLocals s l = QuadrupleS {
-    preprocessing = preprocessing s,
     qprogram = qprogram s,
     maxLocals = max (maxLocals s) l,
     currentFun = currentFun s,
@@ -132,7 +120,6 @@ setMaxLocals s l = QuadrupleS {
 
 resetMaxLocals :: QuadrupleS -> QuadrupleS
 resetMaxLocals s = QuadrupleS {
-    preprocessing = preprocessing s,
     qprogram = qprogram s,
     maxLocals = 0,
     currentFun = currentFun s,
@@ -143,7 +130,6 @@ resetMaxLocals s = QuadrupleS {
 
 addFun :: QuadrupleS -> QFun -> QuadrupleS
 addFun s f = QuadrupleS {
-    preprocessing = preprocessing s,
     qprogram = _addFun (qprogram s) f,
     maxLocals = maxLocals s,
     currentFun = Just $ fident f,
@@ -161,7 +147,6 @@ _addFun p f = QProgram {
 
 addClass :: QuadrupleS -> QClass -> QuadrupleS
 addClass s c = QuadrupleS {
-    preprocessing = preprocessing s,
     qprogram = _addClass (qprogram s) c,
     maxLocals = maxLocals s,
     currentFun = currentFun s,
@@ -182,7 +167,6 @@ addQuad q = modify (`_addQuad` q)
 
 _addQuad :: QuadrupleS -> Quadruple -> QuadrupleS
 _addQuad s q = QuadrupleS {
-    preprocessing = preprocessing s,
     qprogram = __addQuad (qprogram s) (currentFun s) q,
     maxLocals = maxLocals s,
     currentFun = currentFun s,
@@ -201,7 +185,8 @@ __addQuad p mf q =
         fident     = fident lkpf,
         ret        = ret lkpf,
         localcount = localcount lkpf,
-        body       = body lkpf ++ [q]}) (funcs p),
+        body       = body lkpf ++ [q],
+        offset     = offset lkpf}) (funcs p),
     strings = strings p
 }
 
@@ -210,7 +195,6 @@ getLabel = do
     st <- get
     let label = nextLabel st
     put $ QuadrupleS {
-        preprocessing = preprocessing st,
         qprogram = qprogram st,
         maxLocals = maxLocals st,
         currentFun = currentFun st,
@@ -225,7 +209,6 @@ getRegister = do
     st <- get
     let reg = nextReg st
     put $ QuadrupleS {
-        preprocessing = preprocessing st,
         qprogram = qprogram st,
         maxLocals = maxLocals st,
         currentFun = currentFun st,
@@ -254,7 +237,6 @@ addString s = do
 
 _addString :: QuadrupleS -> (String, QLabel) -> QuadrupleS
 _addString s x = QuadrupleS {
-    preprocessing = preprocessing s,
     qprogram = __addString (qprogram s) x,
     maxLocals = maxLocals s,
     currentFun = currentFun s,
@@ -302,22 +284,15 @@ data QFun = QFun {
     fident     :: String,
     ret        :: Type,
     localcount :: Int,
-    body       :: [Quadruple]
+    body       :: [Quadruple],
+    offset     :: Int
 }
 
 data QClass = QClass {
     cident  :: String,
-    fields  :: [QCField],
-    methods :: [String],
-    super   :: Maybe String
-}
-
-classDefPreToQClass :: Pre.ClassDefPre -> QClass
-classDefPreToQClass c = QClass {
-    cident = Pre.ident c,
-    fields = preFieldsToQFields (Pre.attrs c),
-    methods = map fst (M.toList $ Pre.methods c),
-    super = Pre.super c
+    fields  :: M.Map String QCField,
+    methods :: M.Map String QFun,
+    super   :: Maybe QClass
 }
 
 data QCField = QCField {
@@ -326,8 +301,52 @@ data QCField = QCField {
     fieldSize   :: Int
 }
 
-preFieldsToQFields :: M.Map String (Type, Int) -> [QCField]
-preFieldsToQFields fs = map (\(f, (t, o)) -> QCField {fieldName = f, fieldOffset = o, fieldSize = 4}) (M.toList fs)
+preFieldsToQFields :: M.Map String (Type, Int) -> M.Map String QCField
+preFieldsToQFields fs = M.fromList $ map (\(f, (t, o)) -> (f, QCField {fieldName = f, fieldOffset = o, fieldSize = 4})) (M.toList fs)
+
+preFuncsToQFun :: M.Map String ((Type, [Type]), Int) -> M.Map String QFun
+preFuncsToQFun funcs = M.fromList $ map (\(f, ((rType, args), o)) -> (f, QFun {
+    fident     = f,
+    ret        = rType,
+    localcount = length args,
+    body       = [],
+    offset     = o})) (M.toList funcs)
+
+classDefPreToQClass :: Pre.ClassDefPre -> M.Map String QClass -> QClass
+classDefPreToQClass c cs =
+    let superClass = Pre.super c in
+    QClass {
+    cident = Pre.ident c,
+    fields = preFieldsToQFields (Pre.attrs c),
+    methods = preFuncsToQFun (Pre.methods c),
+    super = case superClass of
+                Nothing -> Nothing
+                Just s -> M.lookup (Pre.ident s) cs Control.Applicative.<|> undefined
+}
+
+getOrd :: (String, (Int, Pre.ClassDefPre)) -> Int
+getOrd (_, (ord, _)) = ord
+
+convertPreprocessing :: PreprocessS -> QuadruplesState ()
+convertPreprocessing ps = mapM_ (_convertPreprocessing . (\(_, (_, x)) -> x)) (sortBy (compare `on` getOrd) (M.toList $ Pre.preclasses ps))
+
+_convertPreprocessing :: Pre.ClassDefPre -> QuadruplesState ()
+_convertPreprocessing def = do
+    q <- gets qprogram
+    modify  (\s ->
+        let qclass = classDefPreToQClass def (classes q) in
+        QuadrupleS {
+        qprogram   = QProgram {
+            classes = M.insert (cident qclass) qclass (classes q),
+            funcs   = funcs q,
+            strings = strings q
+        },
+        maxLocals  = maxLocals s,
+        currentFun = currentFun s,
+        nextReg    = nextReg s,
+        nextLabel  = nextLabel s,
+        localStore = localStore s
+        })
 
 newtype QLabel = QLabel Int deriving (Eq, Ord)
 
@@ -496,13 +515,15 @@ showConstString :: (String, QLabel) -> String
 showConstString (s, l) = show l ++ " " ++ show s ++ "\n"
 
 instance Show QClass where
-    show c = "class " ++ cident c ++ if isNothing (super c) then "" else ("$" ++ fromMaybe "" (super c)) ++ "\n" ++ concat (map show (fields c) ++ map show (methods c)) ++ "endclass"
+    show c = "class " ++ cident c ++ (if isNothing (super c) then "" else " $ " ++ maybe "" cident (super c)) ++ "\n" ++
+                concat (map (show . snd) (M.toList $ fields c) ++
+                map (show . snd) (M.toList $ methods c)) ++ "endclass\n"
 
 instance Show QCField where
-    show field = fieldName field ++ "^" ++ show (fieldSize field) ++ "\n"
+    show field = fieldName field ++ "^" ++ show (fieldSize field) ++ " > " ++ show (fieldOffset field) ++ "\n"
 
 instance Show QFun where
-    show f = fident f ++ ":\n" ++ concatMap show (body f)
+    show f = fident f ++ ": > " ++ show (offset f) ++ " | lcount: "  ++ show (localcount f) ++ "\n" ++ concatMap show (body f)
 
 instance Show Quadruple where
     show (Add r1 r2 result) = show result ++ " = " ++ show r1 ++ "+" ++ show r2 ++ "\n"

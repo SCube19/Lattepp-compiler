@@ -31,7 +31,7 @@ type TypeCheckerState = StateT TypeCheckerS (ExceptT String IO)
 
 data TypeCheckerS = TypeCheckerS {
   typeEnv :: M.Map Ident Type,
-  classEnv :: M.Map Ident ((Maybe Ident, BNFC'Position, [Ident]), ClassDefS),
+  classEnv :: M.Map Ident ((Maybe Ident, BNFC'Position, Int, [Ident]), ClassDefS),
   funEnv :: M.Map Ident (Type, [Type]),
   scope :: S.Set Ident,
   expectedReturnType :: Maybe Type,
@@ -169,9 +169,9 @@ addChild s c child = case c of
   Just class1 ->
     case M.lookup class1 (classEnv s) of
       Nothing -> s
-      Just ((ext, pos, childs), def) -> TypeCheckerS {
+      Just ((ext, pos, ord, childs), def) -> TypeCheckerS {
         typeEnv = typeEnv s,
-        classEnv = M.insert class1 ((ext, pos, child : childs), def) (classEnv s),
+        classEnv = M.insert class1 ((ext, pos, ord, child : childs), def) (classEnv s),
         funEnv = funEnv s,
         scope = scope s,
         expectedReturnType = expectedReturnType s,
@@ -180,12 +180,12 @@ addChild s c child = case c of
         self = self s
       }
 
-addClass :: TypeCheckerS -> Ident -> Maybe Ident -> BNFC'Position -> TypeCheckerS
-addClass s c ext pos =
-  let ((_, p, childs), def) = fromMaybe ((Nothing, pos, []), initClassDefS c) (M.lookup c (classEnv s)) in
+addClass :: TypeCheckerS -> Ident -> Maybe Ident -> BNFC'Position -> Int -> TypeCheckerS
+addClass s c ext pos ord =
+  let ((_, p, _, childs), def) = fromMaybe ((Nothing, pos, ord, []), initClassDefS c) (M.lookup c (classEnv s)) in
   addChild (TypeCheckerS {
     typeEnv = typeEnv s,
-    classEnv = M.insert c ((ext, p, childs), def) (classEnv s),
+    classEnv = M.insert c ((ext, p, ord, childs), def) (classEnv s),
     funEnv = funEnv s,
     scope = scope s,
     expectedReturnType = expectedReturnType s,
@@ -242,6 +242,25 @@ addAttr c type1 ident = do
               (throwException $ CannotOverrideInheritedTypeException (hasPosition type1) ident type1 t)
         Just f -> throwException $ ClassFieldRedeclarationException (hasPosition type1) ident
 
+
+updateOrd :: Ident -> TypeCheckerState ()
+updateOrd i = do
+  cs <- gets classEnv
+  case M.lookup i cs of
+    Nothing -> undefined
+    Just ((msuper, p, ord, args), def) -> modify (\s -> TypeCheckerS {
+      typeEnv = typeEnv s,
+      classEnv = M.insert i ((msuper, p, case msuper of
+                                          Nothing -> 0
+                                          Just super -> case M.lookup super cs of
+                                                              Nothing -> undefined
+                                                              Just ((_, _, ord2, _), _) -> ord2 + 1, args), def) (classEnv s),
+      funEnv = funEnv s,
+      scope = scope s,
+      expectedReturnType = expectedReturnType s,
+      objectCheck = objectCheck s,
+      enforceAttr = enforceAttr s,
+      self = self s})
 
 
 _addMethod :: TypeCheckerS -> Ident -> Type -> Ident -> [Arg] -> TypeCheckerS
@@ -314,8 +333,8 @@ findMethod s c i =
     Nothing -> Nothing
     Just (parent, def) -> case M.lookup i (methods def) of
       Nothing -> case parent of
-        (Nothing, _, _)  -> Nothing
-        (Just pid, _, _) -> findMethod s pid i
+        (Nothing, _, _, _)  -> Nothing
+        (Just pid, _, _, _) -> findMethod s pid i
       Just t -> Just t
 
 findAttr :: TypeCheckerS -> Ident -> Ident -> Maybe Type
@@ -324,8 +343,8 @@ findAttr s c i =
     Nothing -> Nothing
     Just (parent, def) -> case M.lookup i (attrs def) of
       Nothing -> case parent of
-        (Nothing, _, _)  -> Nothing
-        (Just pid, _, _) -> findAttr s pid i
+        (Nothing, _, _, _)  -> Nothing
+        (Just pid, _, _, _) -> findAttr s pid i
       Just t -> Just t
 
 findFunInState :: TypeCheckerS -> Ident -> Maybe (Type, [Type])

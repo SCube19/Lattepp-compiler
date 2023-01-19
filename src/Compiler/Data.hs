@@ -61,7 +61,9 @@ data AsmRegister =
     ECX |
     EDX |
     EBP |
-    ESP
+    ESP |
+    ESI |
+    EDI
 
 data AsmMem =
     RegOff AsmRegister Offset |
@@ -135,6 +137,8 @@ instance Show AsmRegister where
     show EDX = "edx"
     show EBP = "ebp"
     show ESP = "esp"
+    show ESI = "esi"
+    show EDI = "edi"
 
 instance Show AsmMem where
     show (RegOff r off) = "[" ++ show r ++ "+" ++ show off ++ "]"

@@ -1,7 +1,7 @@
 module Compiler.Quadruples.Quadruples where
 
 import           Compiler.Quadruples.Data
-import           Compiler.Quadruples.Predata    (initPreprocessS)
+import           Compiler.Quadruples.Predata
 import           Compiler.Quadruples.Preprocess (preprocess)
 import           Control.Monad.State            (MonadIO (liftIO),
                                                  MonadState (get, put),
@@ -15,11 +15,13 @@ import           Utils                          (Raw (raw), rawStr, rawVoid)
 
 quadruplize :: Program -> TypeCheckerS -> QuadruplesState QProgram
 quadruplize p@(Program _ defs) tcEnv = do
-    preprocessed <- lift $ evalStateT (preprocess p tcEnv) initPreprocessS
-    modify (`setPreprocessing` preprocessed)
+    preprocessing <- lift $ evalStateT (preprocess p tcEnv) initPreprocessS
+    convertPreprocessing preprocessing
+    q <- gets qprogram
+    -- liftIO $ putStrLn $ concatMap show (classes q)
     mapM_ quadruplizeTopDef defs
     prog <- gets qprogram
-    liftIO (writeFile "quads.txt" (show prog))
+    -- liftIO (writeFile "quads.txt" (show prog))
     gets qprogram
 
 
@@ -29,7 +31,7 @@ quadruplizeTopDef (FnDef pos ret (Ident ident) args block)  = do
     mx <- gets maxLocals
     let toReserve = mx+ length args
     modify resetMaxLocals
-    modify (`addFun` QFun ident ret toReserve [])
+    modify (`addFun` QFun ident ret toReserve [] 0)
     modify (`setStore` initLocalStore toReserve)
     loadArgs args
     quadruplizeBlock block
@@ -278,11 +280,6 @@ quadruplizeExpr (ERel pos expr1 op expr2) = do
             GE _  -> addQuad $ PhiJge phiLabel afterLabel reg
             EQU _ -> addQuad $ PhiJe  phiLabel afterLabel reg
             NE _  -> addQuad $ PhiJne phiLabel afterLabel reg
-        -- addQuad $ MovV (QBool False) re
-        -- addQuad $ Jmp afterLabel
-        -- addQuad $ Label truey
-        -- addQuad $ MovV (QBool True) reg
-        -- addQuad $ Label afterLabel
         return reg
 
 quadruplizeExpr (EAnd pos expr1 expr2)    = do
@@ -300,12 +297,6 @@ quadruplizeExpr (EAnd pos expr1 expr2)    = do
     addQuad $ MovV (QBool False) f2
     addQuad $ Cmp right f2
     addQuad $ Jne onPhiLabel
-    -- addQuad $ Label falsy
-    -- addQuad $ MovV (QBool False) reg
-    -- addQuad $ Jmp afterLabel
-    -- addQuad $ Label truey
-    -- addQuad $ MovV (QBool True) reg
-    -- addQuad $ Label afterLabel
     addQuad $ Label onPhiLabel
     addQuad $ PhiJne phiLabel afterLabel reg
     return reg
@@ -325,13 +316,6 @@ quadruplizeExpr (EOr pos expr1 expr2)     = do
     f2 <- getRegister
     addQuad $ MovV (QBool False) f2
     addQuad $ Cmp right f2
-    -- addQuad $ Jne truey
-    -- addQuad $ Label falsy
-    -- addQuad $ MovV (QBool False) reg
-    -- addQuad $ Jmp afterLabel
-    -- addQuad $ Label truey
-    -- addQuad $ MovV (QBool True) reg
-    -- addQuad $ Label afterLabel
     addQuad $ Label onPhiLabel
     addQuad $ PhiJne phiLabel afterLabel reg
     return reg

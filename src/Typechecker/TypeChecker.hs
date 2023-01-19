@@ -468,8 +468,8 @@ _findParent pos0 pToFind@(ObjectType pos1 class1) c@(ObjectType pos2 class2) ori
       case M.lookup class2 (classEnv st) of
         Nothing          -> throwException $ UndefinedTypeException pos2 c
         Just (parent, _) -> case parent of
-          (Nothing , _, _) -> return False
-          (Just pid, _, _) -> if pid == class1
+          (Nothing , _, _, _) -> return False
+          (Just pid, _, _, _) -> if pid == class1
             then return True
             else _findParent pos0 pToFind (ObjectType Nothing pid) original
 

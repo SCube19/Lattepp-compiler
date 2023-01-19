@@ -1,10 +1,23 @@
-main:
-jmp L1:
-L0:
-mov r1, 0
-ret r1
-L1:
-mov r2, 4294967295
+class J
+endclass
+class M $ P
+endclass
+class P $ Z
+endclass
+class U $ Y
+endclass
+class X $ Y
+x^4 > 4
+j: > 0 | lcount: 1
+siu: > 4 | lcount: 0
+endclass
+class Y
+h^4 > 0
+l: > 0 | lcount: 1
+endclass
+class Z $ X
+ms^4 > 8
+endclass
+main: > 0 | lcount: 0
 mov r0, 0
-cmp r2, r0
-jne L0:
+ret r0
