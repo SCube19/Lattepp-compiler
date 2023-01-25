@@ -14,14 +14,14 @@ import           Syntax.AbsLattepp           (Block' (Block), Ident (Ident),
                                               Program, TopDef, TopDef' (FnDef),
                                               Type,
                                               Type' (ObjectType, Primitive))
-import           Utils                       (Raw (raw), rawStr)
+import           Utils                       (Raw (raw), rawStr, rawVoid)
 
 type QuadruplesState = StateT QuadrupleS (ExceptT String IO)
 data QuadrupleS = QuadrupleS {
     qprogram   :: QProgram,
     maxLocals  :: Int,
     currentFun :: Maybe String,
-    nextReg    :: Register,
+    nextReg    :: Int,
     nextLabel  :: QLabel,
     localStore :: LocalStore
 }
@@ -33,7 +33,7 @@ data LocalStore = LocalStore {
 
 initLocalStore :: Int -> LocalStore
 initLocalStore size = LocalStore {
-    freeMem = map (`QIndex` False) [0..size - 1],
+    freeMem = map (`QIndex` rawVoid) [0..size - 1],
     varToMem = M.empty
 }
 
@@ -41,13 +41,13 @@ store :: Ident -> Type -> QuadruplesState QIndex
 store i t = do
     s <- gets localStore
     let (newS, mem) = _store s i t
-    modify (`setStore` newS)
+    setStore newS
     return mem
 
 free :: Ident -> QuadruplesState ()
 free i = do
     s <- gets localStore
-    modify (`setStore` _free s i)
+    setStore (_free s i)
 
 _store :: LocalStore -> Ident -> Type -> (LocalStore, QIndex)
 _store s i t =
@@ -56,7 +56,7 @@ _store s i t =
         (x@(QIndex ind str):xs) ->
             (LocalStore {
             freeMem = xs,
-            varToMem = M.insert i (QIndex ind (raw t == rawStr))(varToMem s)
+            varToMem = M.insert i (QIndex ind (raw t))(varToMem s)
     }, x)
 
 _free :: LocalStore -> Ident -> LocalStore
@@ -87,7 +87,7 @@ initQuadruplesS defs = QuadrupleS {
     },
     maxLocals = 0,
     currentFun = Nothing,
-    nextReg = Register 0 False,
+    nextReg = 0,
     nextLabel = QLabel 0,
     localStore = LocalStore {freeMem = [], varToMem = M.empty}
 }
@@ -98,15 +98,15 @@ gatherFuncs (def:defs) fs = case def of
   FnDef _ t (Ident id) _ _ -> gatherFuncs defs ((id, QFun {fident = id, ret = t, localcount = 0, body = [], offset = 0}):fs)
   _ -> gatherFuncs defs fs
 
-setStore :: QuadrupleS -> LocalStore -> QuadrupleS
-setStore s ls = QuadrupleS {
+setStore ::  LocalStore -> QuadruplesState ()
+setStore ls = modify (\s -> QuadrupleS {
     qprogram = qprogram s,
     maxLocals = maxLocals s,
     currentFun = currentFun s,
     nextReg = nextReg s,
     nextLabel = nextLabel s,
     localStore = ls
-}
+})
 
 setMaxLocals :: QuadrupleS -> Int -> QuadrupleS
 setMaxLocals s l = QuadrupleS {
@@ -128,15 +128,15 @@ resetMaxLocals s = QuadrupleS {
     localStore = localStore s
 }
 
-addFun :: QuadrupleS -> QFun -> QuadrupleS
-addFun s f = QuadrupleS {
+addFun :: QFun -> QuadruplesState ()
+addFun f = modify (\s -> QuadrupleS {
     qprogram = _addFun (qprogram s) f,
     maxLocals = maxLocals s,
     currentFun = Just $ fident f,
     nextReg = nextReg s,
     nextLabel = nextLabel s,
     localStore = localStore s
-}
+})
 
 _addFun :: QProgram -> QFun -> QProgram
 _addFun p f = QProgram {
@@ -145,15 +145,15 @@ _addFun p f = QProgram {
     strings = strings p
 }
 
-addClass :: QuadrupleS -> QClass -> QuadrupleS
-addClass s c = QuadrupleS {
+addClass :: QClass -> QuadruplesState ()
+addClass c = modify (\s -> QuadrupleS {
     qprogram = _addClass (qprogram s) c,
     maxLocals = maxLocals s,
     currentFun = currentFun s,
     nextReg = nextReg s,
     nextLabel = nextLabel s,
     localStore = localStore s
-}
+})
 
 _addClass :: QProgram -> QClass -> QProgram
 _addClass p c = QProgram {
@@ -204,26 +204,23 @@ getLabel = do
     }
     return label
 
-getRegister :: QuadruplesState Register
-getRegister = do
+getRegister :: Type -> QuadruplesState Register
+getRegister t = do
     st <- get
     let reg = nextReg st
     put $ QuadrupleS {
         qprogram = qprogram st,
         maxLocals = maxLocals st,
         currentFun = currentFun st,
-        nextReg = _incReg (nextReg st),
+        nextReg = nextReg st + 1,
         nextLabel = nextLabel st,
         localStore = localStore st
     }
-    return reg
+    return $ Register reg t
 
 
 _incLabel :: QLabel -> QLabel
 _incLabel (QLabel i) = QLabel (i + 1)
-
-_incReg :: Register -> Register
-_incReg (Register i _) = Register (i + 1) False
 
 addString :: String -> QuadruplesState QLabel
 addString s = do
@@ -256,11 +253,11 @@ storeEnv :: QuadrupleS -> QuadruplesState a -> QuadruplesState a
 storeEnv changedEnv action = do
   backup <- gets localStore
   result <- action
-  modify (`setStore` backup)
+  setStore backup
   return result
 
 
-data Register = Register Int Bool
+data Register = Register Int Type
 
 instance Eq Register where
     (==) (Register a _) (Register b _) = a == b
@@ -268,11 +265,9 @@ instance Eq Register where
 instance Ord Register where
     compare (Register a _) (Register b _) = compare a b
 
-stringReg :: Register -> Register
-stringReg (Register i _) = Register i True
+regType :: Register -> Type
+regType (Register _ t) = t
 
-isStringReg :: Register -> Bool
-isStringReg (Register _ b) = b
 
 data QProgram = QProgram {
     classes :: M.Map String QClass,
@@ -305,9 +300,9 @@ data QCField = QCField {
 preFieldsToQFields :: M.Map String (Type, Int) -> M.Map String QCField
 preFieldsToQFields fs = M.fromList $ map (\(f, (t, o)) -> (f, QCField {fieldName = f, fieldOffset = o, fieldSize = 4})) (M.toList fs)
 
-preFuncsToQFun :: M.Map String ((Type, [Type]), Int) -> M.Map String QFun
-preFuncsToQFun funcs = M.fromList $ map (\(f, ((rType, args), o)) -> (f, QFun {
-    fident     = f,
+preFuncsToQFun :: M.Map String ((Type, [Type]), Int) -> String -> M.Map String QFun
+preFuncsToQFun funcs cName = M.fromList $ map (\(f, ((rType, args), o)) -> (f, QFun {
+    fident     = cName ++ "__" ++ f,
     ret        = rType,
     localcount = length args,
     body       = [],
@@ -319,7 +314,7 @@ classDefPreToQClass c cs =
     QClass {
     cident = Pre.ident c,
     fields = preFieldsToQFields (Pre.attrs c),
-    methods = preFuncsToQFun (Pre.methods c),
+    methods = preFuncsToQFun (Pre.methods c) (Pre.ident c),
     super = case superClass of
                 Nothing -> Nothing
                 Just s -> M.lookup (Pre.ident s) cs Control.Applicative.<|> undefined,
@@ -352,7 +347,7 @@ _convertPreprocessing def = do
 
 newtype QLabel = QLabel Int deriving (Eq, Ord)
 
-data QIndex = QIndex Int Bool
+data QIndex = QIndex Int Type
 
 type Offset = Int
 
