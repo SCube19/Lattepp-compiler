@@ -16,6 +16,6 @@ int foo(int x) {
 }
 
 int main() {
-  printInt(foo(4));
+  printInt(foo(readInt()));
   return 0;
 }

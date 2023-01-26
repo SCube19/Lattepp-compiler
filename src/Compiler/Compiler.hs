@@ -1,27 +1,31 @@
 module Compiler.Compiler where
-import           Compiler.Data                  as X86
-import           Compiler.Quadruples.Data       as Quad
-import           Compiler.Quadruples.Quadruples (quadruplize)
-import           Control.Monad                  (unless, when)
-import           Control.Monad.Cont             (MonadIO (liftIO),
-                                                 MonadTrans (lift))
-import           Control.Monad.Trans.Except     (ExceptT)
-import           Control.Monad.Trans.State      (evalStateT, get, gets)
-import           Data.List                      (delete)
-import qualified Data.Map                       as M
-import           Data.Maybe                     (fromMaybe)
-import qualified Data.Set                       as S
-import           Syntax.AbsLattepp              (Ident (Ident), Program,
-                                                 Program' (Program),
-                                                 Type' (ObjectType))
-import           Typechecker.Data               (TypeCheckerS)
-import           Utils                          (align16)
+import           Compiler.Allocator.Allocator    (allocMemory)
+import           Compiler.Allocator.Data         (initAllocatorS)
+import           Compiler.AsmOptimizer.Optimizer (optimizeAsm)
+import           Compiler.Data                   as X86
+import           Compiler.Quadruples.Data        as Quad
+import           Compiler.Quadruples.Quadruples  (quadruplize)
+import           Control.Monad                   (unless, when)
+import           Control.Monad.Cont              (MonadIO (liftIO),
+                                                  MonadTrans (lift))
+import           Control.Monad.Trans.Except      (ExceptT)
+import           Control.Monad.Trans.State       (evalStateT, get, gets)
+import           Data.List                       (delete)
+import qualified Data.Map                        as M
+import           Data.Maybe                      (fromMaybe)
+import qualified Data.Set                        as S
+import           Syntax.AbsLattepp               (Ident (Ident), Program,
+                                                  Program' (Program),
+                                                  Type' (ObjectType))
+import           Typechecker.Data                (TypeCheckerS)
+import           Utils                           (align16)
 
 compile :: Program -> TypeCheckerS -> ExceptT String IO String
 compile p@(Program _ defs) tcEnv =  do
     quads <- evalStateT (quadruplize p tcEnv) (initQuadruplesS defs)
-    asm <- evalStateT (compileQuads quads) (initCompilerS $ (Quad.classes quads))
-    return $ concatMap show asm
+    asm <- evalStateT (compileQuads quads) (initCompilerS $ Quad.classes quads)
+    let optimizedAsm = optimizeAsm asm
+    return $ concatMap show optimizedAsm
 
 compileQuads :: QProgram -> CompilerState [AsmInstr]
 compileQuads p = do
@@ -396,63 +400,3 @@ _passRegs (r:rs) nr = do
             addInstr $ X86.Mov QWord (RegOp R9) asmr
             _passRegs rs (nr + 1)
         _ -> return (r:rs)
-
-----------------------------------------------------------------------------
-allocMemory :: [Quadruple] -> AllocatorState (MemoryAllocation, Int)
-allocMemory qs = do
-    defineIntervals qs 0
-    makeAllocation qs 0
-    alloc <- gets allocation
-    size <- gets allocSize
-    return (alloc, size)
-
-
-defineIntervals :: [Quadruple] -> Int -> AllocatorState ()
-defineIntervals [] _ = return ()
-defineIntervals (q:qs) i = do
-    ints <- gets integers
-    let all = filter (\x -> not $ S.member x ints) (extractAll q)
-    let result = extractResult q
-    case result of
-      Nothing -> _defineIntervals all i
-      Just reg ->
-        case q of
-            MovV v _ -> do
-                    allocate reg (ValOp (VInt $ qvalueInt v))
-                    _defineIntervals all i
-            _ -> _defineIntervals all i
-    defineIntervals qs (i + 1)
-
-_defineIntervals :: [Register] -> Int -> AllocatorState ()
-_defineIntervals rs i = do
-    mapM_ (\r -> do
-        insertFirstUsage r i
-        insertLastUsage r i) rs
-
-makeAllocation :: [Quadruple] -> Int -> AllocatorState ()
-makeAllocation [] _ = return ()
-makeAllocation (q:qs) i = do
-    ints <- gets integers
-    let all = filter (\x -> not $ S.member x ints) (extractAll q)
-    fu <- gets fusage
-    lu <- gets lusage
-    mapM_ (\r -> do
-        st1 <- get
-        case M.lookup r fu of
-            Nothing -> return ()
-            Just n  -> do
-                when (i == n) (do
-                when (null (memoryPool st1)) (do
-                    off <- getStackOffset
-                    addToPool $ MemOp $ RegOff RBP off)
-                st3 <- get
-                allocate r (head $ memoryPool st3)
-                shrinkPool
-                    )
-        st2 <- get
-        case M.lookup r lu of
-          Nothing -> return ()
-          Just n  -> when (i == n) (do
-                maybe undefined addToPool (M.lookup r (allocation st2)))
-            ) all
-    makeAllocation qs (i + 1)

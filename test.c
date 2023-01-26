@@ -8,7 +8,7 @@ int foo(int x)
     int d = b / a;
     int e = c + d;
     int f = d * e - 1;
-    printf("%d", f);
+    printf("%d\n", f);
     while (f > 0)
     {
         a = a + b;
@@ -21,6 +21,8 @@ int foo(int x)
 
 int main()
 {
-    printf("%d", foo(4));
+    int x;
+    scanf("%d", &x);
+    printf("%d\n", foo(x));
     return 0;
 }

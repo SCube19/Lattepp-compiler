@@ -11,7 +11,7 @@ type CompilerState = StateT CompilerS (ExceptT String IO)
 
 data CompilerS = CompilerS {
     instructions :: [AsmInstr],
-    mapping      :: MemoryAllocation,
+    mapping      :: M.Map Register AsmOperand,
     usedMem      :: Int,
     classes      :: M.Map String QClass
 }
@@ -32,7 +32,7 @@ addInstr i = modify (\s -> CompilerS {
     classes = classes s
 })
 
-setAllocation :: MemoryAllocation -> Int -> CompilerState ()
+setAllocation :: M.Map Register AsmOperand -> Int -> CompilerState ()
 setAllocation al mem = modify (\s -> CompilerS {
     instructions = instructions s,
     usedMem = mem,
@@ -48,7 +48,7 @@ resetAllocation = modify (\s -> CompilerS {
     classes = classes s
 })
 
-newtype AsmLabel = AsmLabel String
+newtype AsmLabel = AsmLabel String deriving Eq
 
 labelref :: QLabel -> String
 labelref (QLabel l) = "L" ++ show l
@@ -58,7 +58,7 @@ qtoasmlbl (QLabel l) = AsmLabel $ "L" ++ show l
 
 type Offset = Int
 
-data AsmValue = VInt Int | VLabel AsmLabel
+data AsmValue = VInt Int | VLabel AsmLabel deriving Eq
 
 data AsmRegister =
     RAX |
@@ -76,33 +76,38 @@ data AsmRegister =
     R12 |
     R13 |
     R14 |
-    R15
+    R15 deriving Eq
 
 
 data AsmMem =
     RegOff AsmRegister Offset |
     LblOff AsmLabel Offset |
-    IndirMem AsmRegister Offset AsmRegister Offset
+    IndirMem AsmRegister Offset AsmRegister Offset deriving Eq
 
 data AsmOperand =
     ValOp AsmValue |
     RegOp AsmRegister |
-    MemOp AsmMem
+    MemOp AsmMem deriving Eq
 
 isAsmValue :: AsmOperand -> Bool
 isAsmValue (ValOp _) = True
 isAsmValue (RegOp _) = False
 isAsmValue (MemOp _) = False
 
+isAsmReg :: AsmOperand -> Bool
+isAsmReg (ValOp _) = False
+isAsmReg (RegOp _) = True
+isAsmReg (MemOp _) = False
+
 data CallTarget =
     CReg AsmRegister |
-    CLabel AsmLabel
+    CLabel AsmLabel deriving Eq
 
 data OpSize =
     Byte |
     Word |
     DWord |
-    QWord
+    QWord deriving Eq
 
 data AsmInstr =
     Add OpSize AsmOperand AsmOperand |
@@ -138,7 +143,7 @@ data AsmInstr =
     Text String |
     Global String |
     DataString String String |
-    DataBuffer String Int
+    DataBuffer String Int deriving Eq
 
 instance Show AsmLabel where
     show (AsmLabel l) = l
@@ -211,7 +216,7 @@ instance Show AsmInstr where
     show (Neg s o1)    = "\tneg " ++ show s ++ " " ++ show o1 ++ "\n"
     show (Not s o1)    = "\tnot " ++ show s ++ " " ++ show o1 ++ "\n"
     show (Push s o1)   = "\tpush " ++ show s ++ " " ++ show o1 ++ "\n"
-    show (Pop s o1)   = "\tpop " ++ show s ++ " " ++ show o1 ++ "\n"
+    show (Pop s o1)    = "\tpop " ++ show s ++ " " ++ show o1 ++ "\n"
     show Ret           = "\tret\n"
     show (Clear s o1)  = "\txor " ++ show s ++ " " ++ show o1 ++ ", " ++ show o1 ++ "\n"
     show (Section s)   = "section ." ++ s ++ "\n"
@@ -225,109 +230,4 @@ instance Show AsmInstr where
         else if even size then intercalate "," (replicate (div size 2) "0")
         else intercalate "," (replicate size "0") ++ "\n"
 
-
-
-
-
-type AllocatorState = StateT AllocatorS (ExceptT String IO)
-
-data AllocatorS = AllocatorS {
-    allocation      :: MemoryAllocation,
-    integers        :: S.Set Register,
-    usedStackOffset :: Offset,
-    allocSize       :: Int,
-    memoryPool      :: [AsmOperand],
-    fusage          :: M.Map Register Int,
-    lusage          :: M.Map Register Int
-}
-
-type MemoryAllocation = M.Map Register AsmOperand
-
-initRegPool :: [AsmOperand]
-initRegPool = [RegOp RBX, RegOp R12, RegOp R13, RegOp R14, RegOp R15]
-
-initAllocatorS :: Int -> AllocatorS
-initAllocatorS init = AllocatorS {
-    allocation = M.empty,
-    integers = S.empty,
-    usedStackOffset = -8 * (1 + init),
-    allocSize = 0,
-    memoryPool = [],
-    fusage = M.empty,
-    lusage = M.empty
-}
-
-getStackOffset :: AllocatorState Offset
-getStackOffset = do
-    off <- gets usedStackOffset
-    modify (\s -> AllocatorS {
-        allocation = allocation s,
-        integers = integers s,
-        usedStackOffset = usedStackOffset s - 8,
-        allocSize = allocSize s + 1,
-        memoryPool = memoryPool s,
-        fusage = fusage s,
-        lusage = lusage s
-    })
-    return off
-
-allocate :: Register -> AsmOperand -> AllocatorState ()
-allocate reg mem = modify (\s -> AllocatorS {
-    allocation = M.insert reg mem (allocation s),
-    integers = case mem of
-                ValOp _ -> S.insert reg (integers s)
-                RegOp _ -> integers s
-                MemOp _ -> integers s,
-    allocSize = allocSize s,
-    usedStackOffset = usedStackOffset s,
-    memoryPool = memoryPool s,
-    fusage = fusage s,
-    lusage = lusage s
-})
-
-insertFirstUsage :: Register -> Int -> AllocatorState ()
-insertFirstUsage r i = modify (\s -> AllocatorS {
-        allocation = allocation s,
-        integers = integers s,
-        usedStackOffset = usedStackOffset s,
-        allocSize = allocSize s,
-        memoryPool = memoryPool s,
-        fusage = M.insertWith min r i (fusage s),
-        lusage = lusage s
-    })
-
-insertLastUsage :: Register -> Int -> AllocatorState ()
-insertLastUsage r i = modify (\s -> AllocatorS {
-        allocation = allocation s,
-        integers = integers s,
-        usedStackOffset = usedStackOffset s,
-        allocSize = allocSize s,
-        memoryPool = memoryPool s,
-        fusage = fusage s,
-        lusage = M.insertWith max r i (lusage s)
-    })
-
-addToPool :: AsmOperand -> AllocatorState ()
-addToPool op = modify (\s -> AllocatorS {
-    allocation = allocation s,
-    integers = integers s,
-    usedStackOffset = usedStackOffset s,
-    allocSize = allocSize s,
-    memoryPool = op : memoryPool s,
-    fusage = fusage s,
-    lusage = lusage s
-})
-
-shrinkPool :: AllocatorState ()
-shrinkPool = modify (\s ->
-    let (m:ms) = memoryPool s in
-        AllocatorS {
-        allocation = allocation s,
-        integers = integers s,
-        usedStackOffset = usedStackOffset s,
-        allocSize = allocSize s,
-        memoryPool = ms,
-        fusage = fusage s,
-        lusage = lusage s
-    })
 
