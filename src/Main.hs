@@ -29,7 +29,7 @@ runProgram s = do
   tokens <- tokenize s
   tcEnv <- typeCheck tokens
   optimized <- optimize tokens
-  cleaned <- cleanDeadCode tokens
+  cleaned <- cleanDeadCode optimized
   checkReturn cleaned
   liftIO $ hPutStrLn stderr "OK"
   compile cleaned tcEnv
@@ -40,8 +40,8 @@ dump file asm = do
   let object = replaceExtension file "o"
   let binary = takeDirectory file ++ "/" ++ takeBaseName file
   writeFile name asm
-  callCommand $ "nasm -f elf32 " ++ name
-  callCommand $ "i686-linux-gnu-gcc -m32 -no-pie lib/runtime.o " ++ object ++ " -o " ++ binary
+  callCommand $ "nasm -g -f elf64 " ++ name
+  callCommand $ "gcc -g -no-pie lib/runtime.o " ++ object ++ " -o " ++ binary
   callCommand $ "rm " ++ object
 
 main :: IO ()

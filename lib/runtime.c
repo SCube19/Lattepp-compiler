@@ -65,7 +65,7 @@ extern char *__concat(char *str1, char *str2)
     return cnc;
 }
 
-extern int __equals(char *str1, char *str2)
+extern int64_t __equals(char *str1, char *str2)
 {
     if (str1 == NULL || str2 == NULL)
         error();
@@ -75,7 +75,7 @@ extern int __equals(char *str1, char *str2)
         return 0;
 }
 
-extern int __notequals(char *str1, char *str2)
+extern int64_t __notequals(char *str1, char *str2)
 {
     return !__equals(str1, str2);
 }

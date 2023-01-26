@@ -61,14 +61,23 @@ type Offset = Int
 data AsmValue = VInt Int | VLabel AsmLabel
 
 data AsmRegister =
-    EAX |
-    EBX |
-    ECX |
-    EDX |
-    EBP |
-    ESP |
-    ESI |
-    EDI
+    RAX |
+    RBX |
+    RCX |
+    RDX |
+    RBP |
+    RSP |
+    RSI |
+    RDI |
+    R8  |
+    R9  |
+    R10 |
+    R11 |
+    R12 |
+    R13 |
+    R14 |
+    R15
+
 
 data AsmMem =
     RegOff AsmRegister Offset |
@@ -104,6 +113,7 @@ data AsmInstr =
     Cdq |
     Cmp OpSize AsmOperand AsmOperand |
     ILabel AsmLabel |
+    And OpSize AsmOperand AsmOperand |
     Jmp AsmLabel |
     Je AsmLabel |
     Jne AsmLabel |
@@ -115,6 +125,7 @@ data AsmInstr =
     Dec OpSize AsmOperand |
     Lea OpSize AsmOperand AsmOperand |
     Leave |
+    Enter Int|
     Mov OpSize AsmOperand AsmOperand |
     Neg OpSize AsmOperand |
     Not OpSize AsmOperand |
@@ -137,14 +148,22 @@ instance Show AsmValue where
     show (VLabel (AsmLabel l)) = filter (/= ':') l
 
 instance Show AsmRegister where
-    show EAX = "eax"
-    show EBX = "ebx"
-    show ECX = "ecx"
-    show EDX = "edx"
-    show EBP = "ebp"
-    show ESP = "esp"
-    show ESI = "esi"
-    show EDI = "edi"
+    show RAX = "rax"
+    show RBX = "rbx"
+    show RCX = "rcx"
+    show RDX = "rdx"
+    show RBP = "rbp"
+    show RSP = "rsp"
+    show RSI = "rsi"
+    show RDI = "rdi"
+    show R8  = "r8"
+    show R9  = "r9"
+    show R10 = "r10"
+    show R11 = "r11"
+    show R12 = "r12"
+    show R13 = "r13"
+    show R14 = "r14"
+    show R15 = "r15"
 
 instance Show AsmMem where
     show (RegOff r off) = "[" ++ show r ++ "+" ++ show off ++ "]"
@@ -172,9 +191,10 @@ instance Show AsmInstr where
     show (Mul s o1 o2) = "\timul " ++ show s ++ " " ++ show o1 ++ ", " ++ show o2 ++ "\n"
     show (Div s o1)    = "\tidiv " ++ show s ++ " " ++ show o1 ++ "\n"
     show (Call trgt)   = "\tcall " ++ show trgt ++ "\n"
-    show Cdq           = "\tcdq\n"
+    show Cdq           = "\tcqo\n"
     show (Cmp s o1 o2) = "\tcmp " ++ show s ++ " " ++ show o1 ++ ", " ++ show o2 ++ "\n"
     show (ILabel l1)   = show l1 ++ ":\n"
+    show (And s o1 o2)= "\tand " ++ show s ++ " " ++ show o1 ++ ", " ++ show o2 ++ "\n"
     show (Jmp l1)      = "\tjmp " ++ show l1 ++ "\n"
     show (Je l1)       = "\tje " ++ show l1 ++ "\n"
     show (Jne l1)      = "\tjne " ++ show l1 ++ "\n"
@@ -186,6 +206,7 @@ instance Show AsmInstr where
     show (Dec s o1)      = "\tdec " ++ show s ++ " " ++ show o1 ++ "\n"
     show (Lea s o1 o2) = "\tlea " ++ show s ++ " " ++ show o1 ++ ", " ++ show o2 ++ "\n"
     show Leave         = "\tleave\n"
+    show (Enter size)  = "\tenter " ++ show size ++ ", 0\n"
     show (Mov s o1 o2) = "\tmov " ++ show s ++ " " ++ show o1 ++ ", " ++ show o2 ++ "\n"
     show (Neg s o1)    = "\tneg " ++ show s ++ " " ++ show o1 ++ "\n"
     show (Not s o1)    = "\tnot " ++ show s ++ " " ++ show o1 ++ "\n"
@@ -223,13 +244,13 @@ data AllocatorS = AllocatorS {
 type MemoryAllocation = M.Map Register AsmOperand
 
 initRegPool :: [AsmOperand]
-initRegPool = [RegOp EBX, RegOp ECX, RegOp EDX, RegOp ESI, RegOp EDI]
+initRegPool = [RegOp RBX, RegOp R12, RegOp R13, RegOp R14, RegOp R15]
 
 initAllocatorS :: Int -> AllocatorS
 initAllocatorS init = AllocatorS {
     allocation = M.empty,
     integers = S.empty,
-    usedStackOffset = -4 * (1 + init),
+    usedStackOffset = -8 * (1 + init),
     allocSize = 0,
     memoryPool = [],
     fusage = M.empty,
@@ -242,7 +263,7 @@ getStackOffset = do
     modify (\s -> AllocatorS {
         allocation = allocation s,
         integers = integers s,
-        usedStackOffset = usedStackOffset s - 4,
+        usedStackOffset = usedStackOffset s - 8,
         allocSize = allocSize s + 1,
         memoryPool = memoryPool s,
         fusage = fusage s,

@@ -1,3 +1,0 @@
-#!/bin/bash
-
-./latc_x86 $1

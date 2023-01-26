@@ -1,7 +1,7 @@
 all : compiler
 
 compiler : src/Main.hs src/Utils.hs syntax typechecker optimizer
-	i686-linux-gnu-gcc -c lib/runtime.c -o lib/runtime.o
+	gcc -c -g lib/runtime.c -o lib/runtime.o
 	ghc -isrc -package ghc src/Main.hs -o latc_x86 
 	cp src/latc latc
 	chmod +x latc

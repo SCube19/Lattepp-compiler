@@ -357,7 +357,7 @@ qinteger :: Integer -> QValue
 qinteger i = QInt $ fromIntegral i
 
 qvalueInt :: QValue -> Int
-qvalueInt (QBool b) = if b then 2^32 - 1 else 0
+qvalueInt (QBool b) = if b then 2^64 - 1 else 0
 qvalueInt (QInt i)  = i
 
 qvalueBool :: QValue -> Bool

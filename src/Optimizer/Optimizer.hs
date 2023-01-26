@@ -187,7 +187,7 @@ optimizeExpr(Not pos expr) = do
     case newExpr of
         ELitTrue _  -> return $ ELitFalse pos
         ELitFalse _ -> return $ ELitTrue pos
-        newExpr     -> return $ Neg pos newExpr
+        newExpr     -> return $ Not pos newExpr
 
 optimizeExpr (EMul pos expr1 op expr2) = do
     newExpr1 <- optimizeExpr expr1
@@ -196,7 +196,7 @@ optimizeExpr (EMul pos expr1 op expr2) = do
         return $ ELitInt pos (case op of
             Times _ -> extractInt newExpr1 * extractInt newExpr2
             Div _   -> extractInt newExpr1 `div` extractInt newExpr2
-            Mod _   -> extractInt newExpr1 `mod` extractInt newExpr2)
+            Mod _   -> extractInt newExpr1 `rem` extractInt newExpr2)
     else
         return $ EMul pos newExpr1 op newExpr2
 
