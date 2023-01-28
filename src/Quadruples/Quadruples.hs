@@ -1,18 +1,18 @@
-module Compiler.Quadruples.Quadruples where
+module Quadruples.Quadruples where
 
-import           Compiler.Quadruples.Data
-import           Compiler.Quadruples.Predata
-import           Compiler.Quadruples.Preprocess (preprocess)
-import           Control.Monad.State            (MonadIO (liftIO),
-                                                 MonadState (get, put),
-                                                 MonadTrans (lift), evalStateT,
-                                                 gets, modify, when)
-import           Control.Monad.Trans.Except     (ExceptT)
-import qualified Data.Map                       as M
-import           Syntax.AbsLattepp              as Abs
-import           Typechecker.Data               (TypeCheckerS)
-import           Utils                          (Raw (raw), rawBool, rawInt,
-                                                 rawStr, rawVoid)
+import           Abstract.Typechecker.Data  (TypeCheckerS)
+import           Control.Monad.State        (MonadIO (liftIO),
+                                             MonadState (get, put),
+                                             MonadTrans (lift), evalStateT,
+                                             gets, modify, when)
+import           Control.Monad.Trans.Except (ExceptT)
+import qualified Data.Map                   as M
+import           Quadruples.Data            as QD
+import           Quadruples.Predata
+import           Quadruples.Preprocess      (preprocess)
+import           Syntax.AbsLattepp          as Abs
+import           Utils                      (Raw (raw), rawBool, rawInt, rawStr,
+                                             rawVoid)
 
 quadruplize :: Program -> TypeCheckerS -> QuadruplesState QProgram
 quadruplize p@(Program _ defs) tcEnv = do
@@ -112,7 +112,7 @@ quadruplizeStmt (Decr pos ident)                = do
 
 quadruplizeStmt (Abs.Ret pos expr)              = do
     reg <- quadruplizeExpr expr
-    addQuad $ Compiler.Quadruples.Data.Ret reg
+    addQuad $ QD.Ret reg
 
 quadruplizeStmt (VRet pos)                      = addQuad Vret
 
@@ -248,13 +248,13 @@ quadruplizeExpr app@(EApp pos (Ident ident) exprs)   = do
 quadruplizeExpr (Abs.Neg pos expr)        = do
     res <- getRegister rawInt
     reg <- quadruplizeExpr expr
-    addQuad $ Compiler.Quadruples.Data.Neg reg res
+    addQuad $ QD.Neg reg res
     return res
 
 quadruplizeExpr (Abs.Not pos expr)        = do
     res <- getRegister rawBool
     reg <- quadruplizeExpr expr
-    addQuad $ Compiler.Quadruples.Data.Not reg res
+    addQuad $ QD.Not reg res
     return res
 
 quadruplizeExpr (EMul pos expr1 op expr2) = do
@@ -263,8 +263,8 @@ quadruplizeExpr (EMul pos expr1 op expr2) = do
     r2 <- quadruplizeExpr expr2
     case op of
       Times _   -> addQuad $ Mul r1 r2 reg
-      Abs.Div _ -> addQuad $ Compiler.Quadruples.Data.Div r1 r2 reg
-      Abs.Mod _ -> addQuad $ Compiler.Quadruples.Data.Mod r1 r2 reg
+      Abs.Div _ -> addQuad $ QD.Div r1 r2 reg
+      Abs.Mod _ -> addQuad $ QD.Mod r1 r2 reg
     return reg
 
 quadruplizeExpr (EAdd pos expr1 op expr2) = do
@@ -277,11 +277,11 @@ quadruplizeExpr (EAdd pos expr1 op expr2) = do
                     return reg
                 else do
                     reg <- getRegister rawInt
-                    addQuad $ Compiler.Quadruples.Data.Add r1 r2 reg
+                    addQuad $ QD.Add r1 r2 reg
                     return reg
       Minus _ -> do
         reg <- getRegister rawInt
-        addQuad $ Compiler.Quadruples.Data.Sub r1 r2 reg
+        addQuad $ QD.Sub r1 r2 reg
         return reg
 
 quadruplizeExpr (ERel pos expr1 op expr2) = do
@@ -400,4 +400,3 @@ maxLocalsStmt (For pos t ident1 ident2 stmt) l  = do
     modify (`setMaxLocals` (l + 2))
     maxLocalsBlock (Block Nothing [stmt]) (l + 2)
 maxLocalsStmt (SExp pos expr) _                 = return 0
-

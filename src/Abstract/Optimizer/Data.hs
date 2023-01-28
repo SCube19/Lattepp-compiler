@@ -1,4 +1,4 @@
-module Optimizer.Data where
+module Abstract.Optimizer.Data where
 import           Control.Monad.Trans.Except (ExceptT)
 import           Control.Monad.Trans.State  (StateT, get, put)
 import qualified Data.Map                   as M

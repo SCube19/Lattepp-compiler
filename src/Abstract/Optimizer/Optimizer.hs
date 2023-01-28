@@ -1,16 +1,16 @@
-module Optimizer.Optimizer where
+module Abstract.Optimizer.Optimizer where
 
+import           Abstract.Optimizer.Data    (OptimizerS (OptimizerS, consts),
+                                             OptimizerState,
+                                             Value (BoolV, IntV, StrV),
+                                             castBool, castInteger, castString)
+import           Abstract.Optimizer.Utils
 import           Control.Monad.IO.Class     (MonadIO (liftIO))
 import           Control.Monad.Trans.Except (ExceptT, runExceptT)
 import           Control.Monad.Trans.State  (StateT (runStateT), evalStateT,
                                              get, gets, put)
 import qualified Data.Map                   as M
 import           Debug.Trace
-import           Optimizer.Data             (OptimizerS (OptimizerS, consts),
-                                             OptimizerState,
-                                             Value (BoolV, IntV, StrV),
-                                             castBool, castInteger, castString)
-import           Optimizer.Utils
 import           Syntax.AbsLattepp
 import           Utils                      (Raw (raw), rawBool, rawExtIdent,
                                              rawInt, rawStr)
@@ -273,7 +273,6 @@ retBoolLit pos b =
 
 ---------------------------------------------------------------------------------------------------------------
 --never used funcs (keep track of usage and filter defs at the end) when time
---never used arguments (?) when time
 --return based dead code (OK)
 --if/while/for based dead code (OK)
 

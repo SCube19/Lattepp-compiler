@@ -1,6 +1,6 @@
-module Optimizer.Utils where
+module Abstract.Optimizer.Utils where
 
-import           Optimizer.Data    (OptimizerState)
+import           Abstract.Optimizer.Data (OptimizerState)
 import           Syntax.AbsLattepp
 
 isNotEmptyStmt :: Stmt -> Bool

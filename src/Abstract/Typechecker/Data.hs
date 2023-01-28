@@ -1,4 +1,4 @@
-module Typechecker.Data where
+module Abstract.Typechecker.Data where
 
 import           Control.Monad              (when)
 import           Control.Monad.IO.Class     (MonadIO (liftIO))

@@ -1,5 +1,11 @@
-module Typechecker.TypeChecker where
+module Abstract.Typechecker.TypeChecker where
 
+import           Abstract.Typechecker.Data
+import           Abstract.Typechecker.Utils (checkMain, classState,
+                                             defineInheritance, dontAllowVoid,
+                                             ensureTypeExists, functionState,
+                                             gatherFields, gatherHeaders,
+                                             topoSort)
 import           Control.Applicative.Lift   ()
 import           Control.Exception          (try)
 import           Control.Monad              (unless, when, zipWithM_)
@@ -14,12 +20,6 @@ import qualified Data.Set                   as S
 import           Debug.Trace                (trace)
 import           GHC.IO                     (catchException)
 import           Syntax.AbsLattepp
-import           Typechecker.Data
-import           Typechecker.Utils          (checkMain, classState,
-                                             defineInheritance, dontAllowVoid,
-                                             ensureTypeExists, functionState,
-                                             gatherFields, gatherHeaders,
-                                             topoSort)
 import           Utils
 
 typeCheck :: Program -> ExceptT String IO TypeCheckerS

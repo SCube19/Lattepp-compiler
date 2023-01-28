@@ -1,10 +1,10 @@
 module Compiler.Data where
-import           Compiler.Quadruples.Data   (QClass, QLabel (QLabel), Register)
 import           Control.Monad.Trans.Except (ExceptT)
 import           Control.Monad.Trans.State  (StateT, gets, modify)
 import           Data.List                  (intercalate)
 import qualified Data.Map                   as M
 import qualified Data.Set                   as S
+import           Quadruples.Data            (QClass, QLabel (QLabel), Register)
 import           Utils                      (noheadtail)
 
 type CompilerState = StateT CompilerS (ExceptT String IO)
@@ -47,6 +47,15 @@ resetAllocation = modify (\s -> CompilerS {
     mapping = M.empty,
     classes = classes s
 })
+
+updateMapping :: Register -> AsmOperand -> CompilerState ()
+updateMapping reg op = modify (\s -> CompilerS {
+    instructions = instructions s,
+    mapping = M.insert reg op (mapping s),
+    usedMem = usedMem s,
+    classes = classes s
+})
+
 
 newtype AsmLabel = AsmLabel String deriving Eq
 

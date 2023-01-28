@@ -1,8 +1,9 @@
+import           Abstract.Optimizer.Optimizer      (cleanDeadCode, optimize)
+import           Abstract.Typechecker.TypeChecker  (checkReturn, typeCheck)
 import           Compiler.Compiler                 (compile)
 import           Control.Monad.IO.Class            (MonadIO (liftIO))
 import           Control.Monad.Trans.Except        (ExceptT, runExceptT, throwE)
 import           Data.Either                       (either)
-import           Optimizer.Optimizer               (cleanDeadCode, optimize)
 import           Syntax.AbsLattepp                 (Program)
 import           Syntax.LexLattepp                 (tokens)
 import           Syntax.ParLattepp                 (myLexer, pProgram)
@@ -15,7 +16,6 @@ import           System.FilePath                   (replaceExtension,
 import           System.IO                         ()
 import           System.Process                    (callCommand)
 import           Text.XHtml                        (object)
-import           Typechecker.TypeChecker           (checkReturn, typeCheck)
 import           Utils                             (exitError, printProgram)
 
 

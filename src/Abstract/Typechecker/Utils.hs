@@ -1,6 +1,14 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use lambda-case" #-}
-module Typechecker.Utils where
+module Abstract.Typechecker.Utils where
+import           Abstract.Typechecker.Data  (ClassDefS,
+                                             TypeCheckerException (..),
+                                             TypeCheckerS (classEnv, funEnv),
+                                             TypeCheckerState, addAttr,
+                                             addAttrs, addClass, addFun,
+                                             addMethod, emptyScope,
+                                             setExpectedReturnType, setSelf,
+                                             setTypes, updateOrd)
 import           Control.Monad              (unless, when, zipWithM_)
 import           Control.Monad.Trans.Class  (lift)
 import           Control.Monad.Trans.Except (Except, ExceptT, runExceptT)
@@ -21,14 +29,6 @@ import           Syntax.AbsLattepp          (Arg, BNFC'Position, ClassBlock,
                                              TopDef' (ClassDef, ExtClassDef, FnDef),
                                              Type,
                                              Type' (Array, ObjectType, Primitive))
-import           Typechecker.Data           (ClassDefS,
-                                             TypeCheckerException (..),
-                                             TypeCheckerS (classEnv, funEnv),
-                                             TypeCheckerState, addAttr,
-                                             addAttrs, addClass, addFun,
-                                             addMethod, emptyScope,
-                                             setExpectedReturnType, setSelf,
-                                             setTypes, updateOrd)
 import           Utils                      (Raw (raw), firstDuplicateIndex,
                                              getArgIdent, getArgType, rawFun,
                                              rawInt, rawVoid, throwException)

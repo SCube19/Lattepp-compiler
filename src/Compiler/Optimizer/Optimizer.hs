@@ -1,4 +1,4 @@
-module Compiler.AsmOptimizer.Optimizer where
+module Compiler.Optimizer.Optimizer where
 import           Compiler.Data (AsmInstr (Add, Clear, Cmp, Div, Lea, Mov, Mul, Neg, Not, Sub),
                                 AsmOperand (RegOp, ValOp),
                                 AsmRegister (RAX, RBX, RCX, RDX),
@@ -7,7 +7,7 @@ import           Compiler.Data (AsmInstr (Add, Clear, Cmp, Div, Lea, Mov, Mul, N
 
 optimizeAsm :: [AsmInstr] ->  [AsmInstr]
 optimizeAsm is =
-    let newCode = (sameInstr . reversedMoves . pointless) is in
+    let newCode = (sameInstr . reversedMoves . pointless . negnotOpt) is in
     if newCode == is then
         (deadAsm . cmpOpt) newCode
     else
@@ -57,6 +57,29 @@ _cmpOpt (i:is) prev acc =
                         _cmpOpt is i (i : acc)
                 _ -> _cmpOpt is i (i : acc)
         _ -> _cmpOpt is i (i : acc)
+
+negnotOpt :: [AsmInstr] -> [AsmInstr]
+negnotOpt []     = []
+negnotOpt (i:is) = _negnotOpt is i [i]
+
+_negnotOpt  :: [AsmInstr] -> AsmInstr -> [AsmInstr] -> [AsmInstr]
+_negnotOpt [] _ acc = reverse acc
+_negnotOpt (i:is) prev acc =
+    case prev of
+        (Mov s op1prev (ValOp (VInt val))) ->
+            case i of
+                (Neg _ op1) ->
+                    if op1 == op1prev then
+                        let new = Mov s op1prev (ValOp (VInt (-val))) in
+                        _negnotOpt is new (new : tail acc)
+                    else _negnotOpt is i (i : acc)
+                (Not _ op1) ->
+                    if op1 == op1prev then
+                        let new = Mov s op1prev (ValOp (VInt ((val - 1) `rem` (-2)))) in
+                        _negnotOpt is new (new : tail acc)
+                    else _negnotOpt is i (i : acc)
+                _ -> _negnotOpt is i (i : acc)
+        _ -> _negnotOpt is i (i : acc)
 
 
 sameInstr :: [AsmInstr] -> [AsmInstr]

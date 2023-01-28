@@ -1,19 +1,19 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use camelCase" #-}
-module Compiler.Quadruples.Predata where
+module Quadruples.Predata where
+import           Abstract.Typechecker.Data (TypeCheckerS)
+import qualified Abstract.Typechecker.Data as Tc
 import qualified Control.Applicative
-import           Control.Monad.Except (ExceptT)
-import           Control.Monad.State  (StateT, modify)
-import           Data.Function        (on)
-import           Data.List            (sortBy)
-import qualified Data.Map             as M
-import           Data.Maybe           (fromMaybe)
-import qualified Data.Set             as S
-import           Syntax.AbsLattepp    (BNFC'Position, Ident (Ident), Type,
-                                       Type')
-import           Typechecker.Data     (TypeCheckerS)
-import qualified Typechecker.Data     as Tc
-import           Utils                (Pretty (pretty))
+import           Control.Monad.Except      (ExceptT)
+import           Control.Monad.State       (StateT, modify)
+import           Data.Function             (on)
+import           Data.List                 (sortBy)
+import qualified Data.Map                  as M
+import           Data.Maybe                (fromMaybe)
+import qualified Data.Set                  as S
+import           Syntax.AbsLattepp         (BNFC'Position, Ident (Ident), Type,
+                                            Type')
+import           Utils                     (Pretty (pretty))
 
 -------------------------------------- PREPROCESS -------------------------------------------------
 

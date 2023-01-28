@@ -1,24 +1,24 @@
 module Compiler.Compiler where
-import           Compiler.Allocator.Allocator    (allocMemory)
-import           Compiler.Allocator.Data         (initAllocatorS)
-import           Compiler.AsmOptimizer.Optimizer (optimizeAsm)
-import           Compiler.Data                   as X86
-import           Compiler.Quadruples.Data        as Quad
-import           Compiler.Quadruples.Quadruples  (quadruplize)
-import           Control.Monad                   (unless, when)
-import           Control.Monad.Cont              (MonadIO (liftIO),
-                                                  MonadTrans (lift))
-import           Control.Monad.Trans.Except      (ExceptT)
-import           Control.Monad.Trans.State       (evalStateT, get, gets)
-import           Data.List                       (delete)
-import qualified Data.Map                        as M
-import           Data.Maybe                      (fromMaybe)
-import qualified Data.Set                        as S
-import           Syntax.AbsLattepp               (Ident (Ident), Program,
-                                                  Program' (Program),
-                                                  Type' (ObjectType))
-import           Typechecker.Data                (TypeCheckerS)
-import           Utils                           (align16)
+import           Abstract.Typechecker.Data    (TypeCheckerS)
+import           Compiler.Allocator.Allocator (allocMemory)
+import           Compiler.Allocator.Data      (initAllocatorS)
+import           Compiler.Data                as X86
+import           Compiler.Optimizer.Optimizer (optimizeAsm)
+import           Control.Monad                (unless, when)
+import           Control.Monad.Cont           (MonadIO (liftIO),
+                                               MonadTrans (lift))
+import           Control.Monad.Trans.Except   (ExceptT)
+import           Control.Monad.Trans.State    (evalStateT, get, gets)
+import           Data.List                    (delete)
+import qualified Data.Map                     as M
+import           Data.Maybe                   (fromMaybe)
+import qualified Data.Set                     as S
+import           Quadruples.Data              as Quad
+import           Quadruples.Quadruples        (quadruplize)
+import           Syntax.AbsLattepp            (Ident (Ident), Program,
+                                               Program' (Program),
+                                               Type' (ObjectType))
+import           Utils                        (align16)
 
 compile :: Program -> TypeCheckerS -> ExceptT String IO String
 compile p@(Program _ defs) tcEnv =  do
@@ -366,9 +366,9 @@ call name args = do
     newArgs <- passRegs args
     mapM_ (\r -> do
     let asmr = fromMaybe undefined (M.lookup r regs)
+    when (odd $ length newArgs) (addInstr $ X86.Sub QWord (RegOp RSP) (ValOp $ VInt 8))
     addInstr $ Push QWord asmr
     ) (reverse newArgs)
-    when (odd $ length newArgs) (addInstr $ X86.Sub QWord (RegOp RSP) (ValOp $ VInt 8))
     addInstr $ X86.Call (CLabel $ AsmLabel name)
     addInstr $ X86.Add QWord (RegOp RSP) (ValOp $ VInt (align16 $ 8 * length newArgs))
 

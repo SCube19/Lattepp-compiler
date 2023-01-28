@@ -1,16 +1,17 @@
 module Compiler.Allocator.Allocator where
-import           Compiler.Allocator.Data  (AllocatorS (allocSize, allocation, fusage, integers, lusage, memoryPool),
-                                           AllocatorState, addToPool, allocate,
-                                           getStackOffset, insertFirstUsage,
-                                           insertLastUsage, shrinkPool)
-import           Compiler.Data            (AsmMem (RegOff),
-                                           AsmOperand (MemOp, ValOp),
-                                           AsmRegister (RBP), AsmValue (VInt))
-import           Compiler.Quadruples.Data (Quadruple (MovV), Register,
-                                           extractAll, extractResult, qvalueInt)
-import           Control.Monad.RWS        (MonadState (get), gets, when)
-import qualified Data.Map                 as M
-import qualified Data.Set                 as S
+import           Compiler.Allocator.Data (AllocatorS (allocSize, allocation, fusage, integers, lusage, memoryPool, usedStackOffset),
+                                          AllocatorState, addToPool, allocate,
+                                          getStackOffset, insertFirstUsage,
+                                          insertLastUsage, shrinkPool)
+import           Compiler.Data           (AsmMem (RegOff),
+                                          AsmOperand (MemOp, ValOp),
+                                          AsmRegister (RBP), AsmValue (VInt))
+import           Control.Monad.RWS       (MonadIO (liftIO), MonadState (get),
+                                          gets, when)
+import qualified Data.Map                as M
+import qualified Data.Set                as S
+import           Quadruples.Data         (Quadruple (MovV), Register,
+                                          extractAll, extractResult, qvalueInt)
 
 allocMemory :: [Quadruple] -> AllocatorState (M.Map Register AsmOperand, Int)
 allocMemory qs = do
@@ -57,6 +58,8 @@ makeAllocation (q:qs) i = do
             Just n  -> do
                 when (i == n) (do
                 when (null (memoryPool st1)) (do
+                    o <- gets usedStackOffset
+                    liftIO $ print $ "off " ++ show o
                     off <- getStackOffset
                     addToPool $ MemOp $ RegOff RBP off)
                 st3 <- get

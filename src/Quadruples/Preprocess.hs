@@ -1,14 +1,14 @@
-module Compiler.Quadruples.Preprocess where
+module Quadruples.Preprocess where
 
-import           Compiler.Quadruples.Predata
-import           Control.Monad.Cont          (MonadIO (liftIO))
-import           Control.Monad.RWS           (get, gets)
-import           Data.Function               (on)
-import           Data.List                   (sortBy)
-import qualified Data.Map                    as M
+import           Abstract.Typechecker.Data (TypeCheckerS (classEnv))
+import qualified Abstract.Typechecker.Data as Tc
+import           Control.Monad.Cont        (MonadIO (liftIO))
+import           Control.Monad.RWS         (get, gets)
+import           Data.Function             (on)
+import           Data.List                 (sortBy)
+import qualified Data.Map                  as M
+import           Quadruples.Predata
 import           Syntax.AbsLattepp
-import           Typechecker.Data            (TypeCheckerS (classEnv))
-import qualified Typechecker.Data            as Tc
 
 preprocess :: Program -> TypeCheckerS -> PreprocessState PreprocessS
 preprocess (Program _ defs) tcEnv = do

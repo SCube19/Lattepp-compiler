@@ -1,25 +1,37 @@
-all : compiler
+all: build
 
-compiler : src/Main.hs src/Utils.hs syntax typechecker optimizer
+build: base src/Main.hs abstract quadruples compiler
 	gcc -c -g lib/runtime.c -o lib/runtime.o
-	ghc -isrc -package ghc src/Main.hs -o latc_x86 
+	ghc -isrc -package ghc src/Main.hs -o latc_x86-64
 	cp src/latc latc
 	chmod +x latc
-	
-syntax : src/Syntax/AbsLattepp.hs src/Syntax/LexLattepp.hs src/Syntax/ParLattepp.hs
 
-optimizer : src/Optimizer/Optimizer.hs src/Optimizer/Data.hs src/Optimizer/Utils.hs
+compiler: base allocator asmoptimizer src/Compiler/Compiler.hs src/Compiler/Data.hs
 
-typechecker : src/Typechecker/TypeChecker.hs src/Typechecker/Data.hs src/Typechecker/Utils.hs
+allocator: base src/Compiler/Allocator/Allocator.hs src/Compiler/Allocator/Data.hs 
 
-compiler : src/Compiler/Compiler.hs src/Compiler/Data.hs src/Compiler/Quadruples/Quadruples.hs src/Compiler/Quadruples/Data.hs 
+asmoptimizer: base src/Compiler/Optimizer/Optimizer.hs
+
+quadruples: base quadoptimizer src/Quadruples/Data.hs src/Quadruples/Quadruples.hs src/Quadruples/Predata.hs src/Quadruples/Preprocess.hs
+
+quadoptimizer: base 
+
+abstract: base absoptimizer syntax typechecker
+
+absoptimizer: base src/Abstract/Optimizer/Data.hs src/Abstract/Optimizer/Optimizer.hs src/Abstract/Optimizer/Utils.hs
+
+typechecker: base src/Abstract/Typechecker/TypeChecker.hs src/Abstract/Typechecker/Data.hs src/Abstract/Typechecker/Utils.hs
+
+syntax: base src/Syntax/AbsLattepp.hs src/Syntax/LexLattepp.hs src/Syntax/ParLattepp.hs
+
+base: src/Utils.hs
 
 clean :
-	-rm lib/runtime.o
-	-rm -f src/*.hi src/*.o latc_x86 latc
-	-rm -f src/Optimizer/*.o src/Optimizer/*.hi
-	-rm -f src/Typechecker/*.o src/Typechecker/*.hi
-	-rm -f src/Compiler/*.o src/Compiler/*.hi
-	-rm -f src/Compiler/Quadruples/*.o src/Compiler/Quadruples/*.hi
+	-find . -name "*.o" -delete
+	-find . -name "*.hi" -delete
+	-find . -name "*.y" -delete
+	-find . -name "*.info" -delete
+	-find . -name "*.bak" -delete
+	-find . -name "*.x" -delete
+	-rm -f latc_x86-64 latc
 	-make -C src/Syntax clean
-	-rm -f src/Syntax/*.y src/Syntax/*.hi src/Syntax/*.bak src/Syntax/*.info src/Syntax/*.x

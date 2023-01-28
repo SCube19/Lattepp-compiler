@@ -1,23 +1,19 @@
-class J
-endclass
-class M $ P
-endclass
-class P $ Z
-endclass
-class U $ Y
-endclass
-class X $ Y
-x^4 > 4
-j: > 0 | lcount: 1
-siu: > 4 | lcount: 0
-endclass
-class Y
-h^4 > 0
-l: > 0 | lcount: 1
-endclass
-class Z $ X
-ms^4 > 8
-endclass
-main: > 0 | lcount: 0
+main: >> 0
 mov r0, 0
-ret r0
+mov r1, 56
+mov r2, 45
+r3 = r1+r2
+mov r4, 2
+cmp r3, r4
+r5 = phi jle L2:L3:
+mov r6, 0
+cmp r5, r6
+je L0:
+mov r7, 1
+jmp L1:
+L0:
+mov r8, 2
+L1:
+voidcall printInt(r0)
+mov r9, 0
+ret r9

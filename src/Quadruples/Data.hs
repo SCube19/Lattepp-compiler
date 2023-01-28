@@ -1,20 +1,20 @@
-module Compiler.Quadruples.Data where
-import           Compiler.Quadruples.Predata (PreprocessS)
-import qualified Compiler.Quadruples.Predata as Pre
+module Quadruples.Data where
 import qualified Control.Applicative
-import           Control.Monad.Trans.Except  (ExceptT)
-import           Control.Monad.Trans.State   (StateT, get, gets, modify, put)
-import           Data.Function               (on)
-import           Data.List                   (intercalate, sortBy)
-import qualified Data.Map                    as M
-import           Data.Maybe                  (fromJust, fromMaybe, isNothing)
-import           Debug.Trace                 (trace)
-import           Syntax.AbsLattepp           (Block' (Block), Ident (Ident),
-                                              PrimType' (Bool, Int, Str, Void),
-                                              Program, TopDef, TopDef' (FnDef),
-                                              Type,
-                                              Type' (ObjectType, Primitive))
-import           Utils                       (Raw (raw), rawStr, rawVoid)
+import           Control.Monad.Trans.Except (ExceptT)
+import           Control.Monad.Trans.State  (StateT, get, gets, modify, put)
+import           Data.Function              (on)
+import           Data.List                  (intercalate, sortBy)
+import qualified Data.Map                   as M
+import           Data.Maybe                 (fromJust, fromMaybe, isNothing)
+import           Debug.Trace                (trace)
+import           Quadruples.Predata         (PreprocessS)
+import qualified Quadruples.Predata         as Pre
+import           Syntax.AbsLattepp          (Block' (Block), Ident (Ident),
+                                             PrimType' (Bool, Int, Str, Void),
+                                             Program, TopDef, TopDef' (FnDef),
+                                             Type,
+                                             Type' (ObjectType, Primitive))
+import           Utils                      (Raw (raw), rawStr, rawVoid)
 
 type QuadruplesState = StateT QuadrupleS (ExceptT String IO)
 data QuadrupleS = QuadrupleS {
@@ -563,6 +563,5 @@ instance Show Quadruple where
     show (VCall label args this _ result) = show result ++ " = " ++ show this ++ ".vcall " ++ label ++ "(" ++ intercalate "," (map show args)++ ")" ++ "\n"
     show (VoidVCall label args this _ ) = show this ++ ".vcall " ++ label ++ "(" ++ intercalate "," (map show args)++ ")" ++ "\n"
     show (Vtab r1 type1) = "vt " ++ show type1 ++ ", " ++ show r1 ++ "\n"
-
 
 

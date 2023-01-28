@@ -1,10 +1,10 @@
 module Compiler.Allocator.Data where
 import           Compiler.Data
-import           Compiler.Quadruples.Data (Register)
-import           Control.Monad.Except     (ExceptT)
-import           Control.Monad.State      (StateT, gets, modify)
-import qualified Data.Map                 as M
-import qualified Data.Set                 as S
+import           Control.Monad.Except (ExceptT)
+import           Control.Monad.State  (StateT, gets, modify)
+import qualified Data.Map             as M
+import qualified Data.Set             as S
+import           Quadruples.Data      (Register)
 
 
 type AllocatorState = StateT AllocatorS (ExceptT String IO)
