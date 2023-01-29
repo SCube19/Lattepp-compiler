@@ -1,19 +1,61 @@
-main: >> 0
-mov r0, 0
-mov r1, 56
-mov r2, 45
-r3 = r1+r2
-mov r4, 2
-cmp r3, r4
-r5 = phi jle L2:L3:
-mov r6, 0
-cmp r5, r6
-je L0:
-mov r7, 1
+foo: > 0 | lcount: 7
+arg i0, 0
+load r1, i0
+load r2, i0
+r0 = r1*r2
+store i1, r0
+load r3, i0
+load r4, i0
+r5 = r3+r4
+store i2, r5
+load r6, i1
+load r7, i2
+r8 = r6+r7
+store i3, r8
+load r10, i2
+load r11, i1
+r9 = r10/r11
+store i4, r9
+load r12, i3
+load r13, i4
+r14 = r12+r13
+store i5, r14
+load r16, i4
+load r17, i5
+r15 = r16*r17
+mov r18, 1
+r19 = r15-r18
+store i6, r19
+load r20, i6
+voidcall printInt(r20)
 jmp L1:
 L0:
-mov r8, 2
+load r22, i1
+load r23, i2
+r24 = r22+r23
+store i1, r24
+load r26, i3
+load r27, i4
+r25 = r26/r27
+store i3, r25
+load r29, i1
+load r30, i3
+r28 = r29*r30
+store i5, r28
+dec i6
 L1:
-voidcall printInt(r0)
-mov r9, 0
-ret r9
+load r31, i6
+mov r32, 0
+cmp r31, r32
+r33 = phi jg L2:L3:
+mov r21, 0
+cmp r33, r21
+jne L0:
+load r34, i1
+ret r34
+main: > 0 | lcount: 0
+r35 = call readInt()
+r36 = call foo(r35)
+voidcall printInt(r36)
+mov r37, 0
+ret r37

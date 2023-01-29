@@ -197,11 +197,7 @@ compileQuad (Quad.Not r1 res)                      = do
             addInstr $ X86.Mov QWord asmres (RegOp RAX))
     addInstr $ X86.Not QWord asmres
 
-compileQuad (Quad.MovV v r1)                      = do
-    regs <- gets mapping
-    let asmr1 = fromMaybe undefined (M.lookup r1 regs)
-    unless (isAsmValue asmr1) $
-        addInstr $ X86.Mov QWord asmr1 (ValOp (VInt $ qvalueInt v))
+compileQuad (Quad.MovV v r1)                      = do return ()
 
 compileQuad (Quad.Mov r1 r2)                      = do
     regs <- gets mapping
@@ -237,8 +233,8 @@ compileQuad (Quad.Load (QIndex i _) res)                 = do
     addInstr $ X86.Mov QWord (RegOp RAX) (MemOp $ RegOff RBP (-8 * (i + 1)))
     addInstr $ X86.Mov QWord asmres (RegOp RAX)
 
-compileQuad (Quad.LoadArg (QIndex i _))                  = do
-    case i of
+compileQuad (Quad.LoadArg arg (QIndex i _))                  = do
+    case arg of
         0 -> addInstr $ X86.Mov QWord (MemOp $ RegOff RBP (-8 * (i + 1))) (RegOp RDI)
         1 -> addInstr $ X86.Mov QWord (MemOp $ RegOff RBP (-8 * (i + 1))) (RegOp RSI)
         2 -> addInstr $ X86.Mov QWord (MemOp $ RegOff RBP (-8 * (i + 1))) (RegOp RDX)
@@ -285,8 +281,6 @@ compileQuad (Quad.StoreIndir r1 off1 r2 off2 val) = do
       _ -> do
         addInstr $ X86.Mov QWord (RegOp RDX) asmr2
         addInstr $ X86.Mov QWord (MemOp $ IndirMem RCX off1 RDX off2) (RegOp RAX)
-
-compileQuad (Quad.Alloc index)                    = return ()
 
 compileQuad (Quad.Call name args res)             = do
     regs <- gets mapping

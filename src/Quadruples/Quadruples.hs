@@ -1,18 +1,20 @@
 module Quadruples.Quadruples where
 
-import           Abstract.Typechecker.Data  (TypeCheckerS)
-import           Control.Monad.State        (MonadIO (liftIO),
-                                             MonadState (get, put),
-                                             MonadTrans (lift), evalStateT,
-                                             gets, modify, when)
-import           Control.Monad.Trans.Except (ExceptT)
-import qualified Data.Map                   as M
-import           Quadruples.Data            as QD
+import           Abstract.Typechecker.Data      (TypeCheckerS)
+import           Control.Monad.State            (MonadIO (liftIO),
+                                                 MonadState (get, put),
+                                                 MonadTrans (lift), evalStateT,
+                                                 gets, modify, when)
+import           Control.Monad.Trans.Except     (ExceptT)
+import qualified Data.Map                       as M
+import           Quadruples.Data                as QD
+import           Quadruples.Optimizer.Data      (initOptimizerS)
+import           Quadruples.Optimizer.Optimizer (optimizeQProgram)
 import           Quadruples.Predata
-import           Quadruples.Preprocess      (preprocess)
-import           Syntax.AbsLattepp          as Abs
-import           Utils                      (Raw (raw), rawBool, rawInt, rawStr,
-                                             rawVoid)
+import           Quadruples.Preprocess          (preprocess)
+import           Syntax.AbsLattepp              as Abs
+import           Utils                          (Raw (raw), rawBool, rawInt,
+                                                 rawStr, rawVoid)
 
 quadruplize :: Program -> TypeCheckerS -> QuadruplesState QProgram
 quadruplize p@(Program _ defs) tcEnv = do
@@ -20,8 +22,10 @@ quadruplize p@(Program _ defs) tcEnv = do
     convertPreprocessing preprocessing
     mapM_ quadruplizeTopDef defs
     prog <- gets qprogram
-    -- liftIO (writeFile "quads.txt" (show prog))
-    gets qprogram
+    store <- gets localStore
+    optimized <- lift $ evalStateT (optimizeQProgram prog) initOptimizerS
+    liftIO (writeFile "quads.txt" (show optimized))
+    return optimized
 
 
 quadruplizeTopDef :: TopDef -> QuadruplesState ()
@@ -355,8 +359,8 @@ quadruplizeStringRel reg r1 r2 op = do
 loadArgs :: [Arg] -> QuadruplesState ()
 loadArgs [] = return ()
 loadArgs ((Arg _ t ident):as) = do
-    mem <- store ident t
-    addQuad $ LoadArg mem --due to how store works arg index and mem index are the same
+    mem@(QIndex i _) <- store ident t
+    addQuad $ LoadArg i mem
     loadArgs as
 
 isVoidCall :: Expr -> QuadruplesState Bool

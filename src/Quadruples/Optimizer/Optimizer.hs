@@ -1,23 +1,32 @@
 module Quadruples.Optimizer.Optimizer where
 import           Compiler.Data                  (AsmOperand (ValOp),
                                                  AsmValue (VInt))
-import           Control.Monad.Except           (runExcept, runExceptT)
+import           Control.Monad.Except           (MonadIO (liftIO), runExcept,
+                                                 runExceptT)
 import           Control.Monad.State            (MonadTrans (lift),
                                                  StateT (runStateT), evalState,
                                                  evalStateT, gets, modify,
                                                  unless)
+import           Data.List                      (sort)
 import qualified Data.Map                       as M
 import qualified Data.Set                       as S
 import           GHC.TopHandler                 (runIO)
 import           Quadruples.Data
-import           Quadruples.Optimizer.Data      (OptimizerS (copy, fusage, lusage, quadAcc),
+import           Quadruples.Optimizer.Data      (OptimizerS (copy, fusage, indexRemovalMapping, indexfusage, indexlusage, localRemoved, lusage, quadAcc),
                                                  OptimizerState, addAcc,
+                                                 decreaseRemovalMapping,
                                                  initOptimizerS,
+                                                 initRemovalMappng,
+                                                 insertFirstIndexUsage,
                                                  insertFirstUsage,
+                                                 insertLastIndexUsage,
                                                  insertLastUsage, makeCopy,
-                                                 mapCopy, resetAcc)
+                                                 mapIndex, mapIntIndex,
+                                                 removeIndex, resetAcc,
+                                                 resetCopy)
 import           Quadruples.Optimizer.Gcse.Data (initGcseS)
 import           Quadruples.Optimizer.Gcse.Gcse (gcse)
+import           Utils                          (rawInt)
 
 optimizeQProgram :: QProgram -> OptimizerState QProgram
 optimizeQProgram p = do
@@ -27,65 +36,90 @@ optimizeQProgram p = do
 optimizeFuncs :: (String, QFun) -> OptimizerState (String, QFun)
 optimizeFuncs (name, fun) = do
     modify (const initOptimizerS)
-    res <- optimizeQuads (body fun)
+    optimizeQuads (body fun) (localcount fun)
+    res <- gets quadAcc
+    lr <- gets localRemoved
     return (name, QFun {
         fident = fident fun,
-        localcount = localcount fun,
+        localcount = localcount fun - length lr,
         ret = ret fun,
-        body = res,
+        body = reverse res,
         offset = offset fun})
 
-optimizeQuads :: [Quadruple] -> OptimizerState [Quadruple]
-optimizeQuads qs = do return qs
-    -- qs1 <- lift $ evalStateT (gcse qs) initGcseS
-    -- copyPropagation qs1
-    -- qs2 <- gets quadAcc
-    -- resetAcc
-    -- liveRanges qs2 0
-    -- deadCode qs2
-    -- gets quadAcc
+optimizeQuads :: [Quadruple] -> Int -> OptimizerState ()
+optimizeQuads qs size = do
+    qs1 <- optRes $ copyPropagation qs
+    liveRangesIndexes qs1 0
+    qs2 <- optRes $ deadIndexes qs1
+    qs3 <- optRes $ fillHoles qs2 size
+    qs4 <- lift $ evalStateT (gcse qs3) initGcseS
+    liveRanges qs4 0
+    deadRegisters qs4
 
+optRes :: OptimizerState () -> OptimizerState [Quadruple]
+optRes action = do
+    action
+    res <- gets quadAcc
+    resetAcc
+    return $ reverse res
 
 copyPropagation :: [Quadruple] -> OptimizerState ()
 copyPropagation [] = return ()
 
-copyPropagation (q@(Mov r1 r2):qs) = do
-    makeCopy r1 r2
-    addAcc q
+copyPropagation ((Load index1 r1):(Store r2 index2):qs) = do
+    copies <- gets copy
+    let getCp = flip mapIndex copies
+    if r1 == r2 then do
+        makeCopy index2 (getCp index1)
+    else do
+        makeCopy index2 index2
+    addAcc (Load (getCp index1) r1)
+    addAcc (Store r2 index2)
     copyPropagation qs
 
 copyPropagation (q:qs) = do
-    copies <- gets copy
-    case q of
-      Add r1 r2 res                -> addAcc $ Add (mapCopy r1 copies) (mapCopy r2 copies) res
-      Sub r1 r2 res                -> addAcc $ Sub (mapCopy r1 copies) (mapCopy r2 copies) res
-      Div r1 r2 res                -> addAcc $ Div (mapCopy r1 copies) (mapCopy r2 copies) res
-      Mul r1 r2 res                -> addAcc $ Mul (mapCopy r1 copies) (mapCopy r2 copies) res
-      Mod r1 r2 res                -> addAcc $ Mod (mapCopy r1 copies) (mapCopy r2 copies) res
-      Cmp r1 r2                    -> addAcc $ Cmp (mapCopy r1 copies) (mapCopy r2 copies)
-      Neg r1 res                   -> addAcc $ Neg (mapCopy r1 copies) res
-      Not r1 res                   -> addAcc $ Not (mapCopy r1 copies) res
-      Ret r1                       -> addAcc $ Ret (mapCopy r1 copies)
-      LoadIndir r1 n r2 i res      -> addAcc $ LoadIndir (mapCopy r1 copies) n (mapCopy r2 copies) i res
-      StoreIndir r1 n r2 i val     -> addAcc $ StoreIndir (mapCopy r1 copies) n (mapCopy r2 copies) i (mapCopy val copies)
-      Call s args res              -> addAcc $ Call s (map (`mapCopy` copies) args) res
-      VoidCall s args              -> addAcc $ VoidCall s (map (`mapCopy` copies) args)
-      VCall s args r1 n res        -> addAcc $ VCall s (map (`mapCopy` copies) args) (mapCopy r1 copies) n res
-      VoidVCall s args r1 n        -> addAcc $ VoidVCall s (map (`mapCopy` copies) args) (mapCopy r1 copies) n
-      Vtab r1 ty                   -> addAcc $ Vtab (mapCopy r1 copies) ty
-      x -> addAcc x
-    copyPropagation qs
+    if basicBlockBoundry q then do
+        resetCopy
+        addAcc q
+        copyPropagation qs
+    else do
+        copies <- gets copy
+        let getCp = flip mapIndex copies
+        case q of
+            Inc qi -> do
+                addAcc (Inc qi)
+                makeCopy qi qi
+            Dec qi -> do
+                addAcc (Dec qi)
+                makeCopy qi qi
+            Load qi reg -> addAcc (Load (getCp qi) reg)
+            Store reg qi@(QIndex i t) -> do
+                addAcc (Store reg qi)
+                makeCopy qi qi
+            q -> addAcc q
+        copyPropagation qs
 
-deadCode :: [Quadruple] -> OptimizerState ()
-deadCode []     = return ()
-deadCode (q:qs) = do
+basicBlockBoundry :: Quadruple -> Bool
+basicBlockBoundry (Label _) = True
+basicBlockBoundry (Jmp _)   = True
+basicBlockBoundry (Je  _)   = True
+basicBlockBoundry (Jne _)   = True
+basicBlockBoundry (Jge _)   = True
+basicBlockBoundry (Jg  _)   = True
+basicBlockBoundry (Jle _)   = True
+basicBlockBoundry (Jl  _)   = True
+basicBlockBoundry _         = False
+
+deadRegisters :: [Quadruple] -> OptimizerState ()
+deadRegisters []     = return ()
+deadRegisters (q:qs) = do
     f <- gets fusage
     l <- gets lusage
     let result = extractResult q
     case result of
       Nothing -> do
         addAcc q
-        deadCode qs
+        deadRegisters qs
       Just reg ->
         case M.lookup reg f of
             Nothing -> undefined
@@ -94,7 +128,7 @@ deadCode (q:qs) = do
                     Nothing -> undefined
                     Just m -> do
                         unless (n == m) (addAcc q)
-                        deadCode qs
+                        deadRegisters qs
 
 
 liveRanges :: [Quadruple] -> Int -> OptimizerState ()
@@ -109,3 +143,88 @@ _liveRanges rs i = do
     mapM_ (\r -> do
         insertFirstUsage r i
         insertLastUsage r i) rs
+
+
+deadIndexes :: [Quadruple] -> OptimizerState ()
+deadIndexes [] = return ()
+deadIndexes (q:qs) = do
+    f <- gets indexfusage
+    l <- gets indexlusage
+    let index = extractIndex q
+    case index of
+      Nothing -> do
+        addAcc q
+        deadIndexes qs
+      Just ind@(QIndex i _) ->
+        case M.lookup ind f of
+            Nothing -> undefined
+            Just n ->
+                case M.lookup ind l of
+                    Nothing -> undefined
+                    Just m -> do
+                        if n /= m then
+                            addAcc q
+                        else
+                            removeIndex i
+                        deadIndexes qs
+
+
+liveRangesIndexes :: [Quadruple] -> Int -> OptimizerState ()
+liveRangesIndexes [] _ = return ()
+liveRangesIndexes (q:qs) i = do
+    let index = extractIndex q
+    case index of
+      Nothing -> return ()
+      Just qi -> _liveRangesIndex qi i
+    liveRangesIndexes qs (i + 1)
+
+_liveRangesIndex :: QIndex -> Int -> OptimizerState ()
+_liveRangesIndex qi i = do
+    insertFirstIndexUsage qi i
+    insertLastIndexUsage qi i
+
+
+fillHoles :: [Quadruple] -> Int -> OptimizerState ()
+fillHoles qs size = do
+    lr <- gets localRemoved
+    initRemovalMappng size
+    createRemovalMapping (sort lr) size
+    mapIndexes qs
+
+
+createRemovalMapping :: [Int] -> Int -> OptimizerState ()
+createRemovalMapping [] _ = return ()
+createRemovalMapping (i:is) size = do
+    _createRemovalMapping i size
+    createRemovalMapping is size
+
+_createRemovalMapping :: Int -> Int -> OptimizerState ()
+_createRemovalMapping curr size = do
+    unless (curr == size) (do
+        decreaseRemovalMapping curr
+        _createRemovalMapping (curr + 1) size)
+
+mapIndexes :: [Quadruple] -> OptimizerState ()
+mapIndexes [] = return ()
+mapIndexes (q:qs) = do
+    mapping <- gets indexRemovalMapping
+    let mind = flip mapIntIndex mapping
+    case q of
+        Inc qi       -> addAcc $ Inc (mind qi)
+        Dec qi       -> addAcc $ Dec (mind qi)
+        Load qi r    -> addAcc $ Load (mind qi) r
+        LoadArg i qi -> addAcc $ LoadArg i (mind qi)
+        Store r qi   -> addAcc $ Store r (mind qi)
+        _            -> addAcc q
+    mapIndexes qs
+
+extractIndex :: Quadruple -> Maybe QIndex
+extractIndex q = case q of
+  Inc qi       -> Just qi
+  Dec qi       -> Just qi
+  Load qi _    -> Just qi
+  LoadArg _ qi -> Just qi
+  Store _ qi   -> Just qi
+  _            -> Nothing
+
+

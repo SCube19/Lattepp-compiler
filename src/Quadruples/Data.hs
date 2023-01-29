@@ -1,5 +1,6 @@
 module Quadruples.Data where
 import qualified Control.Applicative
+import           Control.Monad.Cont         (MonadIO (liftIO))
 import           Control.Monad.Trans.Except (ExceptT)
 import           Control.Monad.Trans.State  (StateT, get, gets, modify, put)
 import           Data.Function              (on)
@@ -40,7 +41,7 @@ initLocalStore size = LocalStore {
 store :: Ident -> Type -> QuadruplesState QIndex
 store i t = do
     s <- gets localStore
-    let (newS, mem) = _store s i t
+    let (newS, mem@(QIndex i1 ty)) = _store s i t
     setStore newS
     return mem
 
@@ -53,11 +54,11 @@ _store :: LocalStore -> Ident -> Type -> (LocalStore, QIndex)
 _store s i t =
     case freeMem s of
         [] -> undefined
-        (x@(QIndex ind str):xs) ->
+        (x@(QIndex ind _):xs) ->
             (LocalStore {
             freeMem = xs,
-            varToMem = M.insert i (QIndex ind (raw t))(varToMem s)
-    }, x)
+            varToMem = M.insert i (QIndex ind (raw t)) (varToMem s)
+    }, QIndex ind (raw t))
 
 _free :: LocalStore -> Ident -> LocalStore
 _free s i =
@@ -347,7 +348,7 @@ _convertPreprocessing def = do
 
 newtype QLabel = QLabel Int deriving (Eq, Ord)
 
-data QIndex = QIndex Int Type
+data QIndex = QIndex Int Type deriving (Eq, Ord)
 
 type Offset = Int
 
@@ -395,12 +396,11 @@ data Quadruple =
     Vret |
     Label QLabel |
     Load QIndex Register |
-    LoadArg QIndex |
+    LoadArg Int QIndex |
     LoadIndir Register Offset Register Offset Register |
     LoadLbl QLabel Register |
     Store Register QIndex |
     StoreIndir Register Offset Register Offset Register |
-    Alloc QIndex |
     Call String [Register] Register |
     VoidCall String [Register] |
     VCall String [Register] Register Offset Register |
@@ -438,12 +438,11 @@ extractResult (Ret _)                = Nothing
 extractResult Vret                   = Nothing
 extractResult (Label _)              = Nothing
 extractResult (Load _ r)             = Just r
-extractResult (LoadArg _)            = Nothing
+extractResult (LoadArg _ _)          = Nothing
 extractResult (LoadIndir _ _ _ _ r)  = Just r
 extractResult (LoadLbl _ r)          = Just r
 extractResult (Store _ _)            = Nothing
 extractResult (StoreIndir _ _ _ _ r) = Just r
-extractResult (Alloc _)              = Nothing
 extractResult (Call _ _ r)           = Just r
 extractResult (VoidCall _ _)         = Nothing
 extractResult (VCall _ _ _ _ r)      = Just r
@@ -480,12 +479,11 @@ extractAll (Ret r1)                  = [r1]
 extractAll Vret                      = []
 extractAll (Label _)                 = []
 extractAll (Load _ r1)               = [r1]
-extractAll (LoadArg _)               = []
+extractAll (LoadArg _ _)             = []
 extractAll (LoadIndir r1 _ r2 _ r3)  = [r1, r2, r3]
 extractAll (LoadLbl _ r1)            = [r1]
 extractAll (Store r1 _)              = [r1]
 extractAll (StoreIndir r1 _ r2 _ r3) = [r1, r2, r3]
-extractAll (Alloc _)                 = []
 extractAll (Call _ rs r1)            = r1 : rs
 extractAll (VoidCall _ rs)           = rs
 extractAll (VCall _ rs r1 _ r2)      = r1 : r2 : rs
@@ -552,12 +550,11 @@ instance Show Quadruple where
     show Vret = "ret" ++ "\n"
     show (Label label) = show label ++ "\n"
     show (Load index r1) = "load " ++ show r1 ++ ", " ++ show index ++ "\n"
-    show (LoadArg i1) = "arg " ++ show i1 ++ "\n"
+    show (LoadArg num i1) = "arg " ++ show i1 ++ ", " ++ show num ++ "\n"
     show (LoadIndir addr offset1 offsetreg offset2 result) = show result ++ "= ptr [" ++ show addr ++ "+" ++ show offset1 ++ "+" ++ show offsetreg ++ "*" ++ show offset2 ++ "]" ++ "\n"
     show (LoadLbl label r1) = show r1 ++ " = ptr " ++ show label ++ "\n"
     show (Store r1 index) = "store " ++ show index ++ ", " ++ show r1 ++ "\n"
     show (StoreIndir addr offset1 offsetreg offset2 value) = "store " ++ "[" ++ show addr ++ "+" ++ show offset1 ++ "+" ++ show offsetreg ++ "*" ++ show offset2 ++ "], " ++ show value ++ "\n"
-    show (Alloc index) = "alloc " ++ show index ++ "\n"
     show (Call label args result) = show result ++ " = call " ++ label ++ "(" ++ intercalate "," (map show args) ++ ")" ++ "\n"
     show (VoidCall label args) = "voidcall " ++ label ++ "(" ++ intercalate "," (map show args) ++ ")" ++ "\n"
     show (VCall label args this _ result) = show result ++ " = " ++ show this ++ ".vcall " ++ label ++ "(" ++ intercalate "," (map show args)++ ")" ++ "\n"

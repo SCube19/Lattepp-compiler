@@ -272,9 +272,6 @@ retBoolLit pos b =
             return $ ELitFalse pos
 
 ---------------------------------------------------------------------------------------------------------------
---never used funcs (keep track of usage and filter defs at the end) when time
---return based dead code (OK)
---if/while/for based dead code (OK)
 
 cleanDeadCode :: Program -> ExceptT String IO Program
 cleanDeadCode (Program pos defs) = do

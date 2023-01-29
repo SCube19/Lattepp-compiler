@@ -1,12 +1,12 @@
-int main () {
-  int x;
-  int y = 56;
-  if (y + 45 <= 2) {
-    x = 1;
-  } else {
-    x = 2;
-  }
-  printInt(x);
-  return 0 ;
-
+int fun(int a, int b, int c) {
+  int x = a + c;
+  c++;
+  return x + 1;
 }
+
+int main() {
+  fun(1, 2, 3);
+  printInt(fun(3, 2, 1));
+  return 0;
+}
+
