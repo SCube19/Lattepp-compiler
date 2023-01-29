@@ -24,8 +24,10 @@ import           Quadruples.Optimizer.Data      (OptimizerS (copy, fusage, index
                                                  mapIndex, mapIntIndex,
                                                  removeIndex, resetAcc,
                                                  resetCopy)
-import           Quadruples.Optimizer.Gcse.Data (initGcseS)
-import           Quadruples.Optimizer.Gcse.Gcse (gcse)
+import           Quadruples.Optimizer.Lcse.Data (initLcseS)
+import           Quadruples.Optimizer.Lcse.Lcse (lcse)
+import           Quadruples.Optimizer.Utils     (basicBlockBoundry,
+                                                 extractIndex)
 import           Utils                          (rawInt)
 
 optimizeQProgram :: QProgram -> OptimizerState QProgram
@@ -52,7 +54,7 @@ optimizeQuads qs size = do
     liveRangesIndexes qs1 0
     qs2 <- optRes $ deadIndexes qs1
     qs3 <- optRes $ fillHoles qs2 size
-    qs4 <- lift $ evalStateT (gcse qs3) initGcseS
+    qs4 <- lift $ evalStateT (lcse qs3) initLcseS
     liveRanges qs4 0
     deadRegisters qs4
 
@@ -98,17 +100,6 @@ copyPropagation (q:qs) = do
                 makeCopy qi qi
             q -> addAcc q
         copyPropagation qs
-
-basicBlockBoundry :: Quadruple -> Bool
-basicBlockBoundry (Label _) = True
-basicBlockBoundry (Jmp _)   = True
-basicBlockBoundry (Je  _)   = True
-basicBlockBoundry (Jne _)   = True
-basicBlockBoundry (Jge _)   = True
-basicBlockBoundry (Jg  _)   = True
-basicBlockBoundry (Jle _)   = True
-basicBlockBoundry (Jl  _)   = True
-basicBlockBoundry _         = False
 
 deadRegisters :: [Quadruple] -> OptimizerState ()
 deadRegisters []     = return ()
@@ -217,14 +208,4 @@ mapIndexes (q:qs) = do
         Store r qi   -> addAcc $ Store r (mind qi)
         _            -> addAcc q
     mapIndexes qs
-
-extractIndex :: Quadruple -> Maybe QIndex
-extractIndex q = case q of
-  Inc qi       -> Just qi
-  Dec qi       -> Just qi
-  Load qi _    -> Just qi
-  LoadArg _ qi -> Just qi
-  Store _ qi   -> Just qi
-  _            -> Nothing
-
 

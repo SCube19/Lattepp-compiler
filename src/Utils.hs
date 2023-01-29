@@ -44,7 +44,6 @@ align16 :: Int -> Int
 align16 0 = 0
 align16 x = 16 * (x `div` 16 + 1)
 
-
 -- -------------PRETTY-------------------------------------------------------------------
 class Pretty a where
     pretty :: a -> String

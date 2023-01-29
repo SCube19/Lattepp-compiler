@@ -44,7 +44,7 @@ Example
         - Quadruples:
             - local copy propagation
             - dead code removal
-            - GCSE
+            - LCSE
         - Asm:
             - constant propagation (implemented during register allocation due to how quadruples implemented by me work)
             - simple optimizations of reduntant instructions
@@ -53,6 +53,10 @@ Example
         - structures
         - objects
         - virtual methods
+
+# TODOs
+
+    - current index/register quadruples make it hard to take full advantage of SSA during optimizations (global optimization not really viable) - use registers only
 
 # Directory Structure
 
@@ -76,11 +80,11 @@ Example
 |   |   └── Data.hs             # structures for code generation
 |   ├── Quadruples              # generating SSA quadruples for compiler to work with
 |   |   ├── Optimizer
-|   |   |   ├── Gcse            # global common subexpresson optimizer
-|   |   |   |   ├── Data.hs     # structures for gcse
-|   |   |   |   └── Gcse.hs     # main gcse logic
+|   |   |   ├── Lcse            # local common subexpresson optimizer
+|   |   |   |   ├── Data.hs     # structures for lcse
+|   |   |   |   └── Lcse.hs     # main lcse logic
 |   |   |   ├── Data.hs         # structures for quad optimization
-|   |   |   └── Optimizer.hs    # local copy propagation, dead code removal, using gcse optimizer
+|   |   |   └── Optimizer.hs    # local copy propagation, dead code removal, using lcse optimizer
 |   |   ├── Data.hs             # quadruples structures definitions
 |   |   ├── Predata.hs          # structures for preprocessing (offsets)
 |   |   ├── Preprocess.hs       # class structures preprocessing (offsets)

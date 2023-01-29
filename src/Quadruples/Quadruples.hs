@@ -16,6 +16,7 @@ import           Syntax.AbsLattepp              as Abs
 import           Utils                          (Raw (raw), rawBool, rawInt,
                                                  rawStr, rawVoid)
 
+--usunąć indexy na redeklaracji robić nowy rejestr a nie load store
 quadruplize :: Program -> TypeCheckerS -> QuadruplesState QProgram
 quadruplize p@(Program _ defs) tcEnv = do
     preprocessing <- lift $ evalStateT (preprocess p tcEnv) initPreprocessS
