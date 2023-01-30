@@ -1,12 +1,13 @@
 module Quadruples.Data where
 import qualified Control.Applicative
-import           Control.Monad.Cont         (MonadIO (liftIO))
+import           Control.Monad.Cont         (MonadIO (liftIO), when)
 import           Control.Monad.Trans.Except (ExceptT)
 import           Control.Monad.Trans.State  (StateT, get, gets, modify, put)
 import           Data.Function              (on)
 import           Data.List                  (intercalate, sortBy)
 import qualified Data.Map                   as M
 import           Data.Maybe                 (fromJust, fromMaybe, isNothing)
+import qualified Data.Set                   as S
 import           Debug.Trace                (trace)
 import           Quadruples.Predata         (PreprocessS)
 import qualified Quadruples.Predata         as Pre
@@ -15,17 +16,18 @@ import           Syntax.AbsLattepp          (Block' (Block), Ident (Ident),
                                              Program, TopDef, TopDef' (FnDef),
                                              Type,
                                              Type' (Array, ObjectType, Primitive))
-import           Utils                      (Raw (raw), rawStr, rawVoid)
+import           Utils                      (Raw (raw), makeUnique, rawStr,
+                                             rawVoid)
 
 type QuadruplesState = StateT QuadrupleS (ExceptT String IO)
 data QuadrupleS = QuadrupleS {
-    qprogram      :: QProgram,
-    maxLocals     :: Int,
-    currentFun    :: Maybe String,
-    additionalReg :: Maybe Register,
-    nextReg       :: Int,
-    nextLabel     :: QLabel,
-    localStore    :: LocalStore
+    qprogram         :: QProgram,
+    maxLocals        :: Int,
+    currentFun       :: Maybe String,
+    objectGeneration :: Maybe Register,
+    nextReg          :: Int,
+    nextLabel        :: QLabel,
+    localStore       :: LocalStore
 }
 
 data LocalStore = LocalStore {
@@ -90,7 +92,7 @@ initQuadruplesS defs = QuadrupleS {
     },
     maxLocals = 0,
     currentFun = Nothing,
-    additionalReg = Nothing,
+    objectGeneration = Nothing,
     nextReg = 0,
     nextLabel = QLabel 0,
     localStore = LocalStore {freeMem = [], varToMem = M.empty}
@@ -107,7 +109,7 @@ setStore ls = modify (\s -> QuadrupleS {
     qprogram = qprogram s,
     maxLocals = maxLocals s,
     currentFun = currentFun s,
-    additionalReg = additionalReg s,
+    objectGeneration = objectGeneration s,
     nextReg = nextReg s,
     nextLabel = nextLabel s,
     localStore = ls
@@ -118,7 +120,7 @@ setMaxLocals s l = QuadrupleS {
     qprogram = qprogram s,
     maxLocals = max (maxLocals s) l,
     currentFun = currentFun s,
-    additionalReg = additionalReg s,
+    objectGeneration = objectGeneration s,
     nextReg = nextReg s,
     nextLabel = nextLabel s,
     localStore = localStore s
@@ -129,7 +131,7 @@ resetMaxLocals s = QuadrupleS {
     qprogram = qprogram s,
     maxLocals = 0,
     currentFun = currentFun s,
-    additionalReg = additionalReg s,
+    objectGeneration = objectGeneration s,
     nextReg = nextReg s,
     nextLabel = nextLabel s,
     localStore = localStore s
@@ -140,7 +142,7 @@ addFun f = modify (\s -> QuadrupleS {
     qprogram = _addFun (qprogram s) f,
     maxLocals = maxLocals s,
     currentFun = Just $ fident f,
-    additionalReg = additionalReg s,
+    objectGeneration = objectGeneration s,
     nextReg = nextReg s,
     nextLabel = nextLabel s,
     localStore = localStore s
@@ -158,7 +160,7 @@ addClass c = modify (\s -> QuadrupleS {
     qprogram = _addClass (qprogram s) c,
     maxLocals = maxLocals s,
     currentFun = currentFun s,
-    additionalReg = additionalReg s,
+    objectGeneration = objectGeneration s,
     nextReg = nextReg s,
     nextLabel = nextLabel s,
     localStore = localStore s
@@ -179,7 +181,7 @@ _addQuad s q = QuadrupleS {
     qprogram = __addQuad (qprogram s) (currentFun s) q,
     maxLocals = maxLocals s,
     currentFun = currentFun s,
-    additionalReg = additionalReg s,
+    objectGeneration = objectGeneration s,
     nextReg = nextReg s,
     nextLabel = nextLabel s,
     localStore = localStore s
@@ -207,7 +209,7 @@ getLabel = do
     put $ QuadrupleS {
         qprogram = qprogram st,
         currentFun = currentFun st,
-        additionalReg = additionalReg st,
+        objectGeneration = objectGeneration st,
         maxLocals = maxLocals st,
         nextReg = nextReg st,
         nextLabel = _incLabel (nextLabel st),
@@ -223,7 +225,7 @@ getRegister t = do
         qprogram = qprogram st,
         maxLocals = maxLocals st,
         currentFun = currentFun st,
-        additionalReg = additionalReg st,
+        objectGeneration = objectGeneration st,
         nextReg = nextReg st + 1,
         nextLabel = nextLabel st,
         localStore = localStore st
@@ -249,7 +251,7 @@ _addString s x = QuadrupleS {
     qprogram = __addString (qprogram s) x,
     maxLocals = maxLocals s,
     currentFun = currentFun s,
-    additionalReg = additionalReg s,
+    objectGeneration = objectGeneration s,
     nextReg = nextReg s,
     nextLabel = nextLabel s,
     localStore = localStore s
@@ -270,12 +272,12 @@ storeEnv changedEnv action = do
   return result
 
 
-setAdditionalReg :: Maybe Register -> QuadruplesState ()
-setAdditionalReg r = modify (\s -> QuadrupleS {
+setObjectGeneration :: Maybe Register -> QuadruplesState ()
+setObjectGeneration r = modify (\s -> QuadrupleS {
     qprogram = qprogram s,
     maxLocals = maxLocals s,
     currentFun = currentFun s,
-    additionalReg = r,
+    objectGeneration = r,
     nextReg = nextReg s,
     nextLabel = nextLabel s,
     localStore = localStore s
@@ -317,20 +319,125 @@ data QClass = QClass {
 data QCField = QCField {
     fieldName   :: String,
     fieldOffset :: Int,
+    fieldType   :: Type,
     fieldSize   :: Int
 }
 
+getFieldOffsetFromReg :: Register -> Ident -> QuadruplesState Int
+getFieldOffsetFromReg (Register _ t) i = do
+    case t of
+      ObjectType _ (Ident id) -> do
+        p <- gets qprogram
+        let c = fromMaybe undefined (M.lookup id (classes p))
+        getFieldOffset c i
+      _ -> undefined
+
+getFieldOffset :: QClass -> Ident -> QuadruplesState Int
+getFieldOffset c (Ident i) = do
+    p <- gets qprogram
+    case super c of
+      Nothing -> case M.lookup i (fields c) of
+        Nothing    -> undefined
+        Just field -> return $ fieldOffset field
+      Just sup -> case M.lookup i (fields c) of
+        Nothing    -> getFieldOffset sup (Ident i)
+        Just field -> return $ fieldOffset field
+
+getFieldTypeFromReg :: Register -> Ident -> QuadruplesState Type
+getFieldTypeFromReg (Register _ t) i = do
+    case t of
+      ObjectType _ (Ident id) -> do
+        p <- gets qprogram
+        let c = fromMaybe undefined (M.lookup id (classes p))
+        getFieldType c i
+      _ -> undefined
+
+getFieldType :: QClass -> Ident -> QuadruplesState Type
+getFieldType c (Ident i) = do
+    p <- gets qprogram
+    case super c of
+      Nothing -> case M.lookup i (fields c) of
+        Nothing    -> undefined
+        Just field -> return $ fieldType field
+      Just sup -> case M.lookup i (fields c) of
+        Nothing    -> getFieldType sup (Ident i)
+        Just field -> return $ fieldType field
+
+getVTableSize :: QClass -> Int
+getVTableSize c = do
+    _getVTableSize c []
+
+_getVTableSize :: QClass -> [String] -> Int
+_getVTableSize c s = do
+    case super c of
+        Nothing -> do
+            length $ S.fromList (map fst (M.toList $ methods c) ++ s)
+        Just sup ->
+            _getVTableSize sup (map fst (M.toList $ methods c) ++ s)
+
+setUpVtable :: Ident -> QuadruplesState ()
+setUpVtable (Ident ci) = do
+    p <- gets qprogram
+    let c = fromMaybe undefined (M.lookup ci (classes p))
+    when (getVTableSize c > 0) (do
+        q <- getLabel
+        modify (\s -> QuadrupleS {
+        qprogram = QProgram {
+            classes = M.insert (cident c) (QClass {
+                cident  = cident c,
+                fields  = fields c,
+                methods = methods c,
+                super   = super c,
+                vtable  = Just q
+            }) (classes (qprogram s)),
+            funcs = funcs (qprogram s),
+            strings = strings (qprogram s)
+        },
+        maxLocals = maxLocals s,
+        currentFun = currentFun s,
+        objectGeneration = objectGeneration s,
+        nextReg = nextReg s,
+        nextLabel = nextLabel s,
+        localStore = localStore s
+    }))
+
+getDefiningClass :: QClass -> String -> QClass
+getDefiningClass c m =
+  case M.lookup m (methods c) of
+    Nothing ->
+        let sup = fromMaybe undefined (super c) in
+        getDefiningClass sup m
+    Just _ -> c
+
+allMethods :: QClass -> [String]
+allMethods c =
+    let ms = map fst (M.toList (methods c)) in
+    case super c of
+        Nothing  -> ms
+        Just sup -> ms ++ allMethods sup
+
+gatherMethods :: QClass -> [String]
+gatherMethods c =
+    let all = makeUnique $ allMethods c in
+    _gatherMethods c all
+
+_gatherMethods :: QClass -> [String] -> [String]
+_gatherMethods _ [] = []
+_gatherMethods c (m:ms) =
+    let defClass = getDefiningClass c m in
+    (cident defClass ++ "__" ++ m) : _gatherMethods c ms
 
 preFieldsToQFields :: M.Map String (Type, Int) -> M.Map String QCField
-preFieldsToQFields fs = M.fromList $ map (\(f, (t, o)) -> (f, QCField {fieldName = f, fieldOffset = o, fieldSize = 8})) (M.toList fs)
+preFieldsToQFields fs = M.fromList $ map (\(f, (t, o)) -> (f, QCField {fieldName = f, fieldOffset = o, fieldSize = 8, fieldType = t})) (M.toList fs)
 
-preFuncsToQFun :: M.Map String ((Type, [Type]), Int) -> String -> M.Map String QFun
-preFuncsToQFun funcs cName = M.fromList $ map (\(f, ((rType, args), o)) -> (f, QFun {
-    fident     = cName ++ "__" ++ f,
+preFuncsToQFun :: M.Map String ((Type, [Type]), Maybe Int) -> Pre.ClassDefPre -> M.Map String QFun
+preFuncsToQFun funcs c =
+    M.fromList $ map (\(f, ((rType, args), o)) -> (f, QFun {
+    fident     = f,
     ret        = rType,
     localcount = length args,
     body       = [],
-    offset     = o})) (M.toList funcs)
+    offset     = Pre.getPreMethodOffset c f})) (M.toList funcs)
 
 classDefPreToQClass :: Pre.ClassDefPre -> M.Map String QClass -> QClass
 classDefPreToQClass c cs =
@@ -338,7 +445,7 @@ classDefPreToQClass c cs =
     QClass {
     cident = Pre.ident c,
     fields = preFieldsToQFields (Pre.attrs c),
-    methods = preFuncsToQFun (Pre.methods c) (Pre.ident c),
+    methods = preFuncsToQFun (Pre.methods c) c,
     super = case superClass of
                 Nothing -> Nothing
                 Just s -> M.lookup (Pre.ident s) cs Control.Applicative.<|> undefined,
@@ -364,7 +471,7 @@ _convertPreprocessing def = do
         },
         maxLocals  = maxLocals s,
         currentFun = currentFun s,
-        additionalReg = additionalReg s,
+        objectGeneration = objectGeneration s,
         nextReg    = nextReg s,
         nextLabel  = nextLabel s,
         localStore = localStore s
@@ -561,7 +668,7 @@ showConstString (s, l) = show l ++ " " ++ show s ++ "\n"
 instance Show QClass where
     show c = "class " ++ cident c ++ (if isNothing (super c) then "" else " $ " ++ maybe "" cident (super c)) ++ "\n" ++
                 concat (map (show . snd) (M.toList $ fields c) ++
-                map (show . snd) (M.toList $ methods c)) ++ "endclass\n"
+                map (show . snd) (M.toList $ methods c)) ++ "vtab " ++ show (vtable c) ++ "\nendclass\n"
 
 instance Show QCField where
     show field = fieldName field ++ "^" ++ show (fieldSize field) ++ " > " ++ show (fieldOffset field) ++ "\n"

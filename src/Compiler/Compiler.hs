@@ -31,6 +31,7 @@ compileQuads :: QProgram -> CompilerState [AsmInstr]
 compileQuads p = do
     addInstr $ Section "data"
     mapM_ (\(s, l) -> addInstr $ DataString (labelref l) s) (M.toList $ strings p)
+    mapM_ compileQuadsClass (Quad.classes p)
     addInstr $ Section "text"
     addInstr $ Global "main"
     addInstr $ Extern "printInt"
@@ -45,6 +46,11 @@ compileQuads p = do
     mapM_ compileQuadsFun (funcs p)
     gets instructions
 
+compileQuadsClass :: QClass -> CompilerState ()
+compileQuadsClass q = do
+    when (getVTableSize q > 0) (do
+        let methods = gatherMethods q
+        addInstr $ VTab (labelref $ fromMaybe undefined (vtable q)) methods)
 
 compileQuadsFun :: QFun -> CompilerState ()
 compileQuadsFun f = do

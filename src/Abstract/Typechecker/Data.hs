@@ -324,6 +324,7 @@ addMethod c ret ident args = do
             Just (pRet, pTypes) -> do
               when (raw pRet /= raw ret || raw pTypes /= raw types) $
                 throwException $ CannotOverrideInheritedTypeException (hasPosition ret) ident (Fun Nothing ret types) (Fun Nothing pRet pTypes)
+              put $ _addMethod st c ret ident args
         Just f -> throwException $ ClassFieldRedeclarationException (hasPosition ret) ident
 
 

@@ -152,7 +152,9 @@ data AsmInstr =
     Text String |
     Global String |
     DataString String String |
-    DataBuffer String Int deriving Eq
+    DataBuffer String Int |
+    VTab String [String] deriving Eq
+
 
 instance Show AsmLabel where
     show (AsmLabel l) = l
@@ -238,5 +240,5 @@ instance Show AsmInstr where
         if size `mod` 4 == 0 then intercalate "," (replicate (div size 4) "0")
         else if even size then intercalate "," (replicate (div size 2) "0")
         else intercalate "," (replicate size "0") ++ "\n"
-
+    show (VTab l methods) = "\t" ++ l ++ " dd " ++ intercalate "," methods ++ "\n"
 

@@ -191,10 +191,10 @@ typeCheckItem (Init pos ident expr) type1 = do
   st    <- get
   eType <- typeCheckExpr expr
   case M.lookup ident (typeEnv st) of
-    Nothing -> put $ setType st ident type1
+    Nothing -> put $ setType st ident eType
     Just _  -> if S.member ident (scope st)
       then throwException $ VariableRedeclarationException pos ident
-      else put $ setType st ident type1
+      else put $ setType st ident eType
   ensureTypeMatch pos type1 eType
 
 -----------------------------------------------------------------------------
@@ -399,8 +399,7 @@ ensureTypeMatch pos type1 type2 = do
                   ObjectType _ ident -> ident
                   _                  -> undefined
             b1 <- findParent pos type1 type2
-            b2 <- findParent pos type2 type1
-            if b1 || b2
+            if b1
               then return ()
               else throwException $ InvalidTypeExpectedException pos type2 type1
         _ -> ensureObject pos type1

@@ -11,9 +11,10 @@ import           Data.List                 (sortBy)
 import qualified Data.Map                  as M
 import           Data.Maybe                (fromMaybe)
 import qualified Data.Set                  as S
-import           Syntax.AbsLattepp         (BNFC'Position, Ident (Ident), Type,
-                                            Type')
-import           Utils                     (Pretty (pretty))
+import           Debug.Trace               (trace)
+import           Syntax.AbsLattepp         (BNFC'Position, Ident (Ident),
+                                            TopDef' (ClassDef), Type, Type')
+import           Utils                     (Pretty (pretty), makeUnique)
 
 -------------------------------------- PREPROCESS -------------------------------------------------
 
@@ -30,13 +31,10 @@ initPreprocessS = PreprocessS {
 data ClassDefPre = ClassDefPre {
   ident   :: String,
   attrs   :: M.Map String (Type, Int),
-  methods :: M.Map String ((Type, [Type]), Int),
+  methods :: M.Map String ((Type, [Type]), Maybe Int),
   super   :: Maybe ClassDefPre,
   size    :: Int
 }
-
-hasMethod :: Ident -> Bool
-hasMethod i = True
 
 tcClassesToPre :: [(Ident, ((Maybe Ident, BNFC'Position, Int, [Ident]), Tc.ClassDefS))] -> M.Map String (Int, ClassDefPre) -> M.Map String (Int, ClassDefPre)
 tcClassesToPre [] preCs = preCs
@@ -52,13 +50,14 @@ _tcClassDefToPre c i msuper cs =
                                             Nothing     -> Nothing
                                             Just (_, x) -> Just x) in
     let (ats, finalOffset) = addOffsetsToAttrs (M.toList (Tc.attrs c)) superClassSize in
+    let sup = case superClass of
+                        Nothing     -> Nothing
+                        Just (_, x) -> Just x in
     ClassDefPre {
         ident = i,
         attrs   = M.fromList ats,
-        methods = M.fromList $ addOffsetsToMethods (M.toList (Tc.methods c)) S.empty 0,
-        super   = case superClass of
-                        Nothing     -> Nothing
-                        Just (_, x) -> Just x,
+        methods = M.fromList $ addOffsetsToMethods (M.toList (Tc.methods c)) sup 0,
+        super   = sup,
         size    = finalOffset
     }
 
@@ -71,16 +70,41 @@ addOffsetsToAttrs ((Ident name, t):as) offset =
         let (ats, newOffset) = addOffsetsToAttrs as (offset + 8) in
         ((name, (t, offset)):ats, newOffset)
 
-addOffsetsToMethods :: [(Ident, (Type, [Type]))] -> S.Set String -> Int -> [(String, ((Type, [Type]), Int))]
+addOffsetsToMethods :: [(Ident, (Type, [Type]))] -> Maybe ClassDefPre -> Int -> [(String, ((Type, [Type]), Maybe Int))]
 addOffsetsToMethods [] _ _                       = []
-addOffsetsToMethods ((Ident name, ts):as) superMethods offset =
-    if not $ S.member name superMethods then
-        (name, (ts, offset)) : addOffsetsToMethods as (S.insert name superMethods) (offset + 8)
-    else
-        addOffsetsToMethods as superMethods offset
+addOffsetsToMethods ((Ident name, ts):as) sup offset =
+    case sup of
+        Nothing -> (name, (ts, Just offset)) : addOffsetsToMethods as sup (offset + 8)
+        Just s ->
+            if not $ M.member name (methods s) then
+                (name, (ts, Just offset)) : addOffsetsToMethods as sup (offset + 8)
+            else
+                (name, (ts, Nothing)) : addOffsetsToMethods as sup offset
 
 getOrd :: (Ident, ((Maybe Ident, BNFC'Position, Int, [Ident]), Tc.ClassDefS)) -> Int
 getOrd (_, ((_, _, ord, _), _)) = ord
+
+allMethods :: ClassDefPre -> [String]
+allMethods c =
+    let ms = map fst (M.toList (methods c)) in
+    case super c of
+        Nothing  -> ms
+        Just sup -> ms ++ allMethods sup
+
+getPreMethodOffset :: ClassDefPre -> String -> Int
+getPreMethodOffset c i = case M.lookup i (methods c) of
+  Nothing -> undefined
+  Just m@(x, moff) ->
+    case moff of
+        Nothing -> case super c of
+            Nothing  -> undefined
+            Just sup -> getPreMethodOffset sup i
+        Just off -> case super c of
+          Nothing -> off
+          Just sup ->
+            let all = makeUnique $ allMethods sup in
+            length all * 8 + off
+
 
 convertFromTc :: TypeCheckerS -> PreprocessState ()
 convertFromTc tcs = modify $ const
@@ -91,3 +115,4 @@ instance Show ClassDefPre where
     show c = ident c ++ "\n" ++ show (map (\(name, (t, off)) -> (name, pretty t, off)) (M.toList (attrs c))) ++ "\n"
             ++ show (map (\(name, ((r, args), off)) -> (name, pretty r, map pretty args, off)) (M.toList (methods c))) ++ "\n" ++ maybe "Nothing SUPER" ident (super c)
             ++ "\nsize: " ++ show (size c) ++ "\n---------------------------------\n"
+

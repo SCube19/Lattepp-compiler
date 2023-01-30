@@ -1,5 +1,21 @@
-// Author: Tomasz Wysocki 277696
+class A {
+    int x;
+    B c;
+    int[] arr;
+}
+
+class B {
+    int y;
+    int x;
+}
+
+class C extends A {
+    int h;
+}
+
 int main() {
-    printInt((new int[1]).length);
+    A a = new C;
+    a.h = 112;
+    printInt(a.h);
     return 0;
 }

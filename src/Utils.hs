@@ -6,6 +6,7 @@ import           Control.Monad.Trans.Class         (MonadTrans (lift))
 import           Control.Monad.Trans.Except        (throwE)
 import           Control.Monad.Trans.State         (StateT, get, put)
 import           Data.List                         (intercalate)
+import qualified Data.Set                          as S
 import qualified Data.Set                          as Set
 import           Syntax.AbsLattepp
 import           System.Directory.Internal.Prelude (getArgs)
@@ -51,6 +52,9 @@ isArrayType _           = False
 getArrayType :: Type -> Type
 getArrayType (Array _ t) = raw t
 getArrayType _           = undefined
+
+makeUnique :: (Ord a) => [a] -> [a]
+makeUnique qs = S.toList (S.fromList qs)
 -- -------------PRETTY-------------------------------------------------------------------
 class Pretty a where
     pretty :: a -> String
