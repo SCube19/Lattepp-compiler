@@ -50,9 +50,16 @@ mapRegs q = do
     Not r1 res              -> Not (mapReg r1) res
     Mov r1 res              -> Mov (mapReg r1) res
     Ret r1                  -> Ret (mapReg r1)
-    LoadIndir r1 n r2 i res -> LoadIndir (mapReg r1) n (mapReg r2) i res
+    LoadIndir r1 n mr2 i res -> LoadIndir (mapReg r1) n (case mr2 of
+      Nothing -> Nothing
+      Just r2 -> Just (mapReg r2)) i res
     Store r1 qi             -> Store (mapReg r1) qi
-    StoreIndir r1 n r2 i r3 -> LoadIndir (mapReg r1) n (mapReg r2) i (mapReg r3)
+    StoreIndir r1 n mr2 i mr3 -> StoreIndir (mapReg r1) n (case mr2 of
+      Nothing -> Nothing
+      Just r2 -> Just (mapReg r2)) i
+      (case mr3 of
+        Nothing -> Nothing
+        Just r3 -> Just (mapReg r3))
     Call s regs res         -> Call s (map mapReg regs) res
     VoidCall s regs         -> VoidCall s (map mapReg regs)
     VCall s regs r1 n res   -> VCall s (map mapReg regs) (mapReg r1) n res

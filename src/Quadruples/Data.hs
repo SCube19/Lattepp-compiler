@@ -14,17 +14,18 @@ import           Syntax.AbsLattepp          (Block' (Block), Ident (Ident),
                                              PrimType' (Bool, Int, Str, Void),
                                              Program, TopDef, TopDef' (FnDef),
                                              Type,
-                                             Type' (ObjectType, Primitive))
+                                             Type' (Array, ObjectType, Primitive))
 import           Utils                      (Raw (raw), rawStr, rawVoid)
 
 type QuadruplesState = StateT QuadrupleS (ExceptT String IO)
 data QuadrupleS = QuadrupleS {
-    qprogram   :: QProgram,
-    maxLocals  :: Int,
-    currentFun :: Maybe String,
-    nextReg    :: Int,
-    nextLabel  :: QLabel,
-    localStore :: LocalStore
+    qprogram      :: QProgram,
+    maxLocals     :: Int,
+    currentFun    :: Maybe String,
+    additionalReg :: Maybe Register,
+    nextReg       :: Int,
+    nextLabel     :: QLabel,
+    localStore    :: LocalStore
 }
 
 data LocalStore = LocalStore {
@@ -77,7 +78,8 @@ predefinedFuncs = M.fromList [
     ("error", Primitive Nothing (Void Nothing) ),
     ("__concat", Primitive Nothing (Str Nothing) ),
     ("__equals", Primitive Nothing (Bool Nothing) ),
-    ("__notequals", Primitive Nothing (Bool Nothing))]
+    ("__notequals", Primitive Nothing (Bool Nothing)),
+    ("__heap", Primitive Nothing (Void Nothing))]
 
 initQuadruplesS :: [TopDef] -> QuadrupleS
 initQuadruplesS defs = QuadrupleS {
@@ -88,6 +90,7 @@ initQuadruplesS defs = QuadrupleS {
     },
     maxLocals = 0,
     currentFun = Nothing,
+    additionalReg = Nothing,
     nextReg = 0,
     nextLabel = QLabel 0,
     localStore = LocalStore {freeMem = [], varToMem = M.empty}
@@ -104,6 +107,7 @@ setStore ls = modify (\s -> QuadrupleS {
     qprogram = qprogram s,
     maxLocals = maxLocals s,
     currentFun = currentFun s,
+    additionalReg = additionalReg s,
     nextReg = nextReg s,
     nextLabel = nextLabel s,
     localStore = ls
@@ -114,6 +118,7 @@ setMaxLocals s l = QuadrupleS {
     qprogram = qprogram s,
     maxLocals = max (maxLocals s) l,
     currentFun = currentFun s,
+    additionalReg = additionalReg s,
     nextReg = nextReg s,
     nextLabel = nextLabel s,
     localStore = localStore s
@@ -124,6 +129,7 @@ resetMaxLocals s = QuadrupleS {
     qprogram = qprogram s,
     maxLocals = 0,
     currentFun = currentFun s,
+    additionalReg = additionalReg s,
     nextReg = nextReg s,
     nextLabel = nextLabel s,
     localStore = localStore s
@@ -134,6 +140,7 @@ addFun f = modify (\s -> QuadrupleS {
     qprogram = _addFun (qprogram s) f,
     maxLocals = maxLocals s,
     currentFun = Just $ fident f,
+    additionalReg = additionalReg s,
     nextReg = nextReg s,
     nextLabel = nextLabel s,
     localStore = localStore s
@@ -151,6 +158,7 @@ addClass c = modify (\s -> QuadrupleS {
     qprogram = _addClass (qprogram s) c,
     maxLocals = maxLocals s,
     currentFun = currentFun s,
+    additionalReg = additionalReg s,
     nextReg = nextReg s,
     nextLabel = nextLabel s,
     localStore = localStore s
@@ -171,6 +179,7 @@ _addQuad s q = QuadrupleS {
     qprogram = __addQuad (qprogram s) (currentFun s) q,
     maxLocals = maxLocals s,
     currentFun = currentFun s,
+    additionalReg = additionalReg s,
     nextReg = nextReg s,
     nextLabel = nextLabel s,
     localStore = localStore s
@@ -197,8 +206,9 @@ getLabel = do
     let label = nextLabel st
     put $ QuadrupleS {
         qprogram = qprogram st,
-        maxLocals = maxLocals st,
         currentFun = currentFun st,
+        additionalReg = additionalReg st,
+        maxLocals = maxLocals st,
         nextReg = nextReg st,
         nextLabel = _incLabel (nextLabel st),
         localStore = localStore st
@@ -213,6 +223,7 @@ getRegister t = do
         qprogram = qprogram st,
         maxLocals = maxLocals st,
         currentFun = currentFun st,
+        additionalReg = additionalReg st,
         nextReg = nextReg st + 1,
         nextLabel = nextLabel st,
         localStore = localStore st
@@ -238,6 +249,7 @@ _addString s x = QuadrupleS {
     qprogram = __addString (qprogram s) x,
     maxLocals = maxLocals s,
     currentFun = currentFun s,
+    additionalReg = additionalReg s,
     nextReg = nextReg s,
     nextLabel = nextLabel s,
     localStore = localStore s
@@ -258,6 +270,17 @@ storeEnv changedEnv action = do
   return result
 
 
+setAdditionalReg :: Maybe Register -> QuadruplesState ()
+setAdditionalReg r = modify (\s -> QuadrupleS {
+    qprogram = qprogram s,
+    maxLocals = maxLocals s,
+    currentFun = currentFun s,
+    additionalReg = r,
+    nextReg = nextReg s,
+    nextLabel = nextLabel s,
+    localStore = localStore s
+})
+
 data Register = Register Int Type
 
 instance Eq Register where
@@ -267,8 +290,7 @@ instance Ord Register where
     compare (Register a _) (Register b _) = compare a b
 
 regType :: Register -> Type
-regType (Register _ t) = t
-
+regType (Register _ t) = raw t
 
 data QProgram = QProgram {
     classes :: M.Map String QClass,
@@ -298,8 +320,9 @@ data QCField = QCField {
     fieldSize   :: Int
 }
 
+
 preFieldsToQFields :: M.Map String (Type, Int) -> M.Map String QCField
-preFieldsToQFields fs = M.fromList $ map (\(f, (t, o)) -> (f, QCField {fieldName = f, fieldOffset = o, fieldSize = 4})) (M.toList fs)
+preFieldsToQFields fs = M.fromList $ map (\(f, (t, o)) -> (f, QCField {fieldName = f, fieldOffset = o, fieldSize = 8})) (M.toList fs)
 
 preFuncsToQFun :: M.Map String ((Type, [Type]), Int) -> String -> M.Map String QFun
 preFuncsToQFun funcs cName = M.fromList $ map (\(f, ((rType, args), o)) -> (f, QFun {
@@ -341,10 +364,24 @@ _convertPreprocessing def = do
         },
         maxLocals  = maxLocals s,
         currentFun = currentFun s,
+        additionalReg = additionalReg s,
         nextReg    = nextReg s,
         nextLabel  = nextLabel s,
         localStore = localStore s
         })
+
+getClassSize :: Ident -> Int -> QuadruplesState Int
+getClassSize (Ident i) n = do
+    p <- gets qprogram
+    case M.lookup i (classes p) of
+      Nothing  -> undefined
+      Just c -> do
+        let size = length (fields c)
+        let ms = super c
+        case ms of
+          Nothing -> return $ n + size
+          Just s  -> getClassSize (Ident $ cident s) (n + size)
+
 
 newtype QLabel = QLabel Int deriving (Eq, Ord)
 
@@ -397,10 +434,10 @@ data Quadruple =
     Label QLabel |
     Load QIndex Register |
     LoadArg Int QIndex |
-    LoadIndir Register Offset Register Offset Register |
+    LoadIndir Register Offset (Maybe Register) Offset Register |
     LoadLbl QLabel Register |
     Store Register QIndex |
-    StoreIndir Register Offset Register Offset Register |
+    StoreIndir Register Offset (Maybe Register) Offset (Maybe Register) |
     Call String [Register] Register |
     VoidCall String [Register] |
     VCall String [Register] Register Offset Register |
@@ -480,10 +517,22 @@ extractAll Vret                      = []
 extractAll (Label _)                 = []
 extractAll (Load _ r1)               = [r1]
 extractAll (LoadArg _ _)             = []
-extractAll (LoadIndir r1 _ r2 _ r3)  = [r1, r2, r3]
+extractAll (LoadIndir r1 _ mr2 _ r3)  =
+    case mr2 of
+        Nothing -> [r1, r3]
+        Just r2 -> [r1, r2, r3]
 extractAll (LoadLbl _ r1)            = [r1]
 extractAll (Store r1 _)              = [r1]
-extractAll (StoreIndir r1 _ r2 _ r3) = [r1, r2, r3]
+extractAll (StoreIndir r1 _ mr2 _ mr3) =
+    case mr2 of
+        Nothing ->
+            case mr3 of
+                Nothing -> [r1]
+                Just r3 -> [r1, r3]
+        Just r2 ->
+            case mr3 of
+                Nothing -> [r1, r2]
+                Just r3 -> [r1, r2, r3]
 extractAll (Call _ rs r1)            = r1 : rs
 extractAll (VoidCall _ rs)           = rs
 extractAll (VCall _ rs r1 _ r2)      = r1 : r2 : rs
@@ -551,14 +600,23 @@ instance Show Quadruple where
     show (Label label) = show label ++ "\n"
     show (Load index r1) = "load " ++ show r1 ++ ", " ++ show index ++ "\n"
     show (LoadArg num i1) = "arg " ++ show i1 ++ ", " ++ show num ++ "\n"
-    show (LoadIndir addr offset1 offsetreg offset2 result) = show result ++ "= ptr [" ++ show addr ++ "+" ++ show offset1 ++ "+" ++ show offsetreg ++ "*" ++ show offset2 ++ "]" ++ "\n"
-    show (LoadLbl label r1) = show r1 ++ " = ptr " ++ show label ++ "\n"
+    show l@(LoadIndir addr offset1 offsetreg offset2 result) = show result ++ " = load [" ++ show addr ++ "+" ++ show offset1 ++ showOffMul l ++ "]" ++ "\n"
+    show (LoadLbl label r1) = show r1 ++ " = load " ++ show label ++ "\n"
     show (Store r1 index) = "store " ++ show index ++ ", " ++ show r1 ++ "\n"
-    show (StoreIndir addr offset1 offsetreg offset2 value) = "store " ++ "[" ++ show addr ++ "+" ++ show offset1 ++ "+" ++ show offsetreg ++ "*" ++ show offset2 ++ "], " ++ show value ++ "\n"
+    show s@(StoreIndir addr offset1 offsetreg offset2 value) = "store " ++ "[" ++ show addr ++ "+" ++ show offset1 ++ showOffMul s ++ "], " ++ maybe "0" show value  ++ "\n"
     show (Call label args result) = show result ++ " = call " ++ label ++ "(" ++ intercalate "," (map show args) ++ ")" ++ "\n"
     show (VoidCall label args) = "voidcall " ++ label ++ "(" ++ intercalate "," (map show args) ++ ")" ++ "\n"
     show (VCall label args this _ result) = show result ++ " = " ++ show this ++ ".vcall " ++ label ++ "(" ++ intercalate "," (map show args)++ ")" ++ "\n"
     show (VoidVCall label args this _ ) = show this ++ ".vcall " ++ label ++ "(" ++ intercalate "," (map show args)++ ")" ++ "\n"
     show (Vtab r1 type1) = "vt " ++ show type1 ++ ", " ++ show r1 ++ "\n"
 
+
+showOffMul :: Quadruple -> String
+showOffMul (StoreIndir _ _ mr1 off _) = case mr1 of
+  Nothing  -> ""
+  Just reg -> "+" ++ show reg ++ "*" ++ show off
+showOffMul (LoadIndir _ _ mr1 off _) = case mr1 of
+  Nothing  -> ""
+  Just reg -> "+" ++ show reg ++ "*" ++ show off
+showOffMul _ = undefined
 

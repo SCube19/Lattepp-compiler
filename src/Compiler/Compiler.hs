@@ -41,6 +41,7 @@ compileQuads p = do
     addInstr $ Extern "__concat"
     addInstr $ Extern "__equals"
     addInstr $ Extern "__notequals"
+    addInstr $ Extern "__heap"
     mapM_ compileQuadsFun (funcs p)
     gets instructions
 
@@ -245,17 +246,20 @@ compileQuad (Quad.LoadArg arg (QIndex i _))                  = do
              addInstr $ X86.Mov QWord (RegOp RAX) (MemOp $ RegOff RBP (8 * (i - 4)))
              addInstr $ X86.Mov QWord (MemOp $ RegOff RBP (-8 * (i + 1))) (RegOp RAX)
 
-compileQuad (Quad.LoadIndir r1 off1 r2 off2 res)  = do
+compileQuad (Quad.LoadIndir r1 off1 mr2 off2 res)  = do
     regs <- gets mapping
     let asmres = fromMaybe undefined (M.lookup res regs)
     let asmr1 = fromMaybe undefined (M.lookup r1 regs)
-    let asmr2 = fromMaybe undefined (M.lookup r2 regs)
     addInstr $ X86.Mov QWord (RegOp RAX) asmr1
-    case asmr2 of
-      ValOp (VInt 0) ->  addInstr $ X86.Mov QWord (RegOp RAX) (MemOp $ RegOff RAX off1)
-      _ -> do
-        addInstr $ X86.Mov QWord (RegOp RCX) asmr2
-        addInstr $ X86.Mov QWord (RegOp RAX) (MemOp $ IndirMem RAX off1 RCX off2)
+    case mr2 of
+      Nothing -> addInstr $ X86.Mov QWord (RegOp RAX) (MemOp $ RegOff RAX off1)
+      Just r2 -> do
+        let asmr2 = fromMaybe undefined (M.lookup r2 regs)
+        case asmr2 of
+            ValOp (VInt 0) ->  addInstr $ X86.Mov QWord (RegOp RAX) (MemOp $ RegOff RAX off1)
+            _ -> do
+                addInstr $ X86.Mov QWord (RegOp RCX) asmr2
+                addInstr $ X86.Mov QWord (RegOp RAX) (MemOp $ IndirMem RAX off1 RCX off2)
     addInstr $ X86.Mov QWord asmres (RegOp RAX)
 
 compileQuad (Quad.LoadLbl l1 res)                 = do
@@ -269,18 +273,24 @@ compileQuad (Quad.Store r1 (QIndex i _))              = do
     addInstr $ X86.Mov QWord (RegOp RAX) asmr1
     addInstr $ X86.Mov QWord (MemOp $ RegOff RBP (-8 * (i + 1))) (RegOp RAX)
 
-compileQuad (Quad.StoreIndir r1 off1 r2 off2 val) = do
+compileQuad (Quad.StoreIndir r1 off1 mr2 off2 mval) = do
     regs <- gets mapping
-    let asmval = fromMaybe undefined (M.lookup val regs)
     let asmr1 = fromMaybe undefined (M.lookup r1 regs)
-    let asmr2 = fromMaybe undefined (M.lookup r2 regs)
     addInstr $ X86.Mov QWord (RegOp RCX) asmr1
-    addInstr $ X86.Mov QWord (RegOp RAX) asmval
-    case asmr2 of
-      ValOp (VInt 0) -> addInstr $ X86.Mov QWord (MemOp $ RegOff RCX off1) (RegOp RAX)
-      _ -> do
-        addInstr $ X86.Mov QWord (RegOp RDX) asmr2
-        addInstr $ X86.Mov QWord (MemOp $ IndirMem RCX off1 RDX off2) (RegOp RAX)
+    case mval of
+      Nothing -> addInstr $ X86.Mov QWord (RegOp RAX) (ValOp $ VInt 0)
+      Just val -> do
+        let asmval = fromMaybe undefined (M.lookup val regs)
+        addInstr $ X86.Mov QWord (RegOp RAX) asmval
+    case mr2 of
+      Nothing -> addInstr $ X86.Mov QWord (MemOp $ RegOff RCX off1) (RegOp RAX)
+      Just r2 -> do
+        let asmr2 = fromMaybe undefined (M.lookup r2 regs)
+        case asmr2 of
+            ValOp (VInt 0) -> addInstr $ X86.Mov QWord (MemOp $ RegOff RCX off1) (RegOp RAX)
+            _ -> do
+                addInstr $ X86.Mov QWord (RegOp RDX) asmr2
+                addInstr $ X86.Mov QWord (MemOp $ IndirMem RCX off1 RDX off2) (RegOp RAX)
 
 compileQuad (Quad.Call name args res)             = do
     regs <- gets mapping

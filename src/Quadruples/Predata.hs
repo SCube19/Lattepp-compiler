@@ -68,14 +68,14 @@ addOffsetsToAttrs ((Ident name, t):as) offset =
     if name == "self" then
         addOffsetsToAttrs as offset
     else
-        let (ats, newOffset) = addOffsetsToAttrs as (offset + 4) in
+        let (ats, newOffset) = addOffsetsToAttrs as (offset + 8) in
         ((name, (t, offset)):ats, newOffset)
 
 addOffsetsToMethods :: [(Ident, (Type, [Type]))] -> S.Set String -> Int -> [(String, ((Type, [Type]), Int))]
 addOffsetsToMethods [] _ _                       = []
 addOffsetsToMethods ((Ident name, ts):as) superMethods offset =
     if not $ S.member name superMethods then
-        (name, (ts, offset)) : addOffsetsToMethods as (S.insert name superMethods) (offset + 4)
+        (name, (ts, offset)) : addOffsetsToMethods as (S.insert name superMethods) (offset + 8)
     else
         addOffsetsToMethods as superMethods offset
 

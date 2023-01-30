@@ -4,16 +4,18 @@ import           Abstract.Typechecker.Data      (TypeCheckerS)
 import           Control.Monad.State            (MonadIO (liftIO),
                                                  MonadState (get, put),
                                                  MonadTrans (lift), evalStateT,
-                                                 gets, modify, when)
+                                                 gets, modify, unless, when)
 import           Control.Monad.Trans.Except     (ExceptT)
 import qualified Data.Map                       as M
+import           Data.Maybe                     (fromMaybe, isNothing)
 import           Quadruples.Data                as QD
 import           Quadruples.Optimizer.Data      (initOptimizerS)
 import           Quadruples.Optimizer.Optimizer (optimizeQProgram)
 import           Quadruples.Predata
 import           Quadruples.Preprocess          (preprocess)
 import           Syntax.AbsLattepp              as Abs
-import           Utils                          (Raw (raw), rawBool, rawInt,
+import           Utils                          (Raw (raw), getArrayType,
+                                                 isArrayType, rawBool, rawInt,
                                                  rawStr, rawVoid)
 
 --usunąć indexy na redeklaracji robić nowy rejestr a nie load store
@@ -25,7 +27,7 @@ quadruplize p@(Program _ defs) tcEnv = do
     prog <- gets qprogram
     store <- gets localStore
     optimized <- lift $ evalStateT (optimizeQProgram prog) initOptimizerS
-    liftIO (writeFile "quads.txt" (show optimized))
+    liftIO (writeFile "quads.txt" (show prog))
     return optimized
 
 
@@ -33,7 +35,7 @@ quadruplizeTopDef :: TopDef -> QuadruplesState ()
 quadruplizeTopDef (FnDef pos ret (Ident ident) args block)  = do
     l <- maxLocalsBlock block 0
     mx <- gets maxLocals
-    let toReserve = mx+ length args
+    let toReserve = mx + length args
     modify resetMaxLocals
     addFun $ QFun ident ret toReserve [] 0
     setStore (initLocalStore toReserve)
@@ -91,7 +93,14 @@ quadruplizeStmt (Ass pos ident expr)            = do
                 Nothing -> undefined
                 Just mem -> do
                         addQuad $ Store reg mem
-      ArrId _ id ex -> undefined
+      ArrId _ id ex -> do
+        case M.lookup id (varToMem st) of
+          Nothing -> undefined
+          Just arr -> do
+            index <- quadruplizeExpr ex
+            addr <- getRegister rawInt
+            addQuad $ Load arr addr
+            addQuad $ StoreIndir addr 8 (Just index) 8 (Just reg)
       AttrId _ ex ex' -> undefined
 
 quadruplizeStmt (Incr pos ident)                = do
@@ -101,7 +110,20 @@ quadruplizeStmt (Incr pos ident)                = do
                     Nothing -> undefined
                     Just mem -> do
                         addQuad $ Inc mem
-      ArrId ma id ex -> undefined
+      ArrId _ id ex -> do
+        case M.lookup id (varToMem st) of
+          Nothing -> undefined
+          Just arr -> do
+            index <- quadruplizeExpr ex
+            m1 <- getRegister rawInt
+            res <- getRegister rawInt
+            load <- getRegister rawInt
+            addr <- getRegister rawInt
+            addQuad $ Load arr addr
+            addQuad $ LoadIndir addr 8 (Just index) 8 load
+            addQuad $ MovV (QInt 1) m1
+            addQuad $ Add load m1 res
+            addQuad $ StoreIndir addr 8 (Just index) 8 (Just res)
       AttrId ma ex ex' -> undefined
 
 
@@ -112,7 +134,20 @@ quadruplizeStmt (Decr pos ident)                = do
                     Nothing -> undefined
                     Just mem -> do
                         addQuad $ Dec mem
-      ArrId ma id ex -> undefined
+      ArrId _ id ex -> do
+        case M.lookup id (varToMem st) of
+          Nothing -> undefined
+          Just arr -> do
+            index <- quadruplizeExpr ex
+            m1 <- getRegister rawInt
+            res <- getRegister rawInt
+            load <- getRegister rawInt
+            addr <- getRegister rawInt
+            addQuad $ Load arr addr
+            addQuad $ LoadIndir addr 8 (Just index) 8 load
+            addQuad $ MovV (QInt 1) m1
+            addQuad $ Sub load m1 res
+            addQuad $ StoreIndir addr 8 (Just index) 8 (Just res)
       AttrId ma ex ex' -> undefined
 
 quadruplizeStmt (Abs.Ret pos expr)              = do
@@ -158,7 +193,49 @@ quadruplizeStmt (While pos expr stmt)           = do
     addQuad $ Cmp condReg zero
     addQuad $ Jne bodyLabel
 
-quadruplizeStmt (For pos t ident1 ident2 stmt)  = return ()
+quadruplizeStmt (For pos t ident1@(Ident i) ident2 stmt)  = do
+    st <- get
+    local <- gets localStore
+    let arr = case ident2 of
+          Id _ id         -> fromMaybe undefined (M.lookup id (varToMem local))
+          AttrId _ ex ex' -> undefined
+          _               -> undefined
+    storeEnv st (do
+        bodyLabel <- getLabel
+        condLabel <- getLabel
+
+        zero <- getRegister rawInt
+        value <- getRegister t
+        index <- getRegister rawInt
+        indexCheck <- getRegister rawInt
+        len <- getRegister rawInt
+        addr1 <- getRegister rawInt
+        addr2 <- getRegister rawInt
+
+        x <- store ident1 t
+        xiter <- store (Ident $ i ++ "__ITERATOR") rawInt
+
+        addQuad $ MovV (QInt 0) zero
+        addQuad $ Store zero xiter
+
+        addQuad $ Jmp condLabel
+
+        addQuad $ Label bodyLabel
+        addQuad $ Load xiter index
+        addQuad $ Load arr addr1
+        addQuad $ LoadIndir addr1 8 (Just index) 8 value
+        addQuad $ Store value x
+
+        quadruplizeBlock (Block Nothing [stmt])
+
+        addQuad $ Inc xiter
+
+        addQuad $ Label condLabel
+        addQuad $ Load xiter indexCheck
+        addQuad $ Load arr addr2
+        addQuad $ LoadIndir addr2 0 Nothing 0 len
+        addQuad $ Cmp indexCheck len
+        addQuad $ Jl bodyLabel)
 
 quadruplizeStmt (SExp pos expr)                 = do
     quadruplizeExpr expr
@@ -168,14 +245,28 @@ quadruplizeItem :: Type -> Item -> QuadruplesState ()
 quadruplizeItem t (NoInit pos ident)    = do
     reg <- getRegister t
     addQuad $ MovV (QInt 0) reg
-    mem <- store ident t
-    addQuad $ Store reg mem
+    case t of
+      Primitive _ pt -> do
+            mem <- store ident t
+            addQuad $ Store reg mem
+      ObjectType ma id -> return ()
+      Array _ t1 -> do
+            arr <- store ident t
+            addQuad $ StoreIndir reg 0 Nothing 0 Nothing
+            addQuad $ Store reg arr
+      _ -> undefined
 
 quadruplizeItem t (Init pos ident expr) = do
     reg <- quadruplizeExpr expr
-    mem <- store ident t
-    addQuad $ Store reg mem
-
+    case t of
+      Primitive ma pt -> do
+        mem <- store ident t
+        addQuad $ Store reg mem
+      ObjectType ma id -> return ()
+      Array _ t1 -> do
+            arr <- store ident t
+            addQuad $ Store reg arr
+      _ -> undefined
 
 quadruplizeExpr :: Expr -> QuadruplesState Register
 quadruplizeExpr (ECast pos ident expr)    = do
@@ -186,21 +277,57 @@ quadruplizeExpr (ECastPrim pos t expr)    = do
     (Register reg _) <- quadruplizeExpr expr
     return $ Register reg (Primitive Nothing t)
 
-quadruplizeExpr (ENewObject pos ident)    = return $ Register 0 rawVoid
+quadruplizeExpr (ENewObject pos ident)    = do
+    classSize <- getClassSize ident 0
+    let vtableSize = classSize + 8
+    sizeReg <- getRegister rawInt
+    res <- getRegister (raw $ ObjectType Nothing ident)
+    addQuad $ MovV (QInt vtableSize) sizeReg
+    addQuad $ Call "__heap" [sizeReg] res
+    addQuad $ Vtab res (regType res)
+    return res
 
-quadruplizeExpr (ENewArr pos t expr)      = return $ Register 0 rawVoid
+quadruplizeExpr (ENewArr pos t expr)      = do
+    sizeReg <- quadruplizeExpr expr
+    m1 <- getRegister rawInt
+    realSize <- getRegister rawInt
+    bytes <- getRegister rawInt
+    addQuad $ MovV (QInt 1) m1
+    addQuad $ Add sizeReg m1 realSize
+    res <- getRegister (raw $ Array Nothing t)
+    addQuad $ Call "__heap" [realSize] res
+    addQuad $ StoreIndir res 0 Nothing 0 (Just sizeReg)
+    return res
 
 quadruplizeExpr (ENull pos)               = do
     reg <- getRegister rawVoid
     addQuad $ MovV (QInt 0) reg
     return reg
 
-quadruplizeExpr (EObject pos expr1 expr2) = return $ Register 0 rawVoid
+quadruplizeExpr (EObject pos expr1 expr2) = do
+    left@(Register _ t) <- quadruplizeExpr expr1
+    if isArrayType t then do
+        l <- getRegister rawInt
+        addQuad $ LoadIndir left 0 Nothing 0 l
+        return l
+    else
+        return left
 
-quadruplizeExpr (EArr pos ident expr)     = return $ Register 0 rawVoid
+quadruplizeExpr (EArr pos ident expr)     = do
+    s <- gets localStore
+    case M.lookup ident (varToMem s) of
+      Nothing -> undefined
+      Just arr@(QIndex _ t) -> do
+        index <- quadruplizeExpr expr
+        addr <- getRegister rawInt
+        res <- getRegister t
+        addQuad $ Load arr addr
+        addQuad $ LoadIndir addr 8 (Just index) 8 res
+        return res
 
 quadruplizeExpr (EVar pos ident)          = do
     s <- gets localStore
+    f <- gets currentFun
     case M.lookup ident (varToMem s) of
       Nothing -> undefined
       Just mem@(QIndex i t) -> do
@@ -229,7 +356,7 @@ quadruplizeExpr (EString pos s)           = do
     addQuad $ LoadLbl label reg
     return reg
 
-quadruplizeExpr app@(EApp pos (Ident ident) exprs)   = do
+quadruplizeExpr app@(EApp pos (Ident ident) exprs) = do
     args <- mapM quadruplizeExpr exprs
     p <- gets qprogram
     vc <- isVoidCall app

@@ -72,5 +72,5 @@ makeKey (Mod r1 r2 res) = "mod" ++ show r1 ++ show r2
 makeKey _               = ""
 
 
-getMapping :: Register -> M.Map Register Register -> Register
+getMapping :: (Ord a) => a -> M.Map a a -> a
 getMapping reg m = fromMaybe reg (M.lookup reg m)

@@ -44,6 +44,13 @@ align16 :: Int -> Int
 align16 0 = 0
 align16 x = 16 * (x `div` 16 + 1)
 
+isArrayType :: Type -> Bool
+isArrayType (Array _ _) = True
+isArrayType _           = False
+
+getArrayType :: Type -> Type
+getArrayType (Array _ t) = raw t
+getArrayType _           = undefined
 -- -------------PRETTY-------------------------------------------------------------------
 class Pretty a where
     pretty :: a -> String

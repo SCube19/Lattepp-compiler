@@ -182,7 +182,7 @@ instance Show AsmRegister where
 instance Show AsmMem where
     show (RegOff r off) = "[" ++ show r ++ "+" ++ show off ++ "]"
     show (LblOff (AsmLabel l) off) = "[[" ++ l ++ "]" ++ "+" ++ show off ++ "]"
-    show (IndirMem r1 off1 r2 off2) = "[" ++ show r1 ++ "+" ++ show off1 ++ "+" ++ show r2 ++ "*" ++ show r2 ++ "]"
+    show (IndirMem r1 off1 r2 off2) = "[" ++ show r1 ++ "+" ++ show off1 ++ "+" ++ show r2 ++ "*" ++ show off2 ++ "]"
 
 instance Show AsmOperand where
     show (ValOp x) = show x
