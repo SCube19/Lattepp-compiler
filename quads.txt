@@ -14,15 +14,26 @@ h^8 > 24
 vtab Nothing
 endclass
 main: > 0 | lcount: 1
-mov r0, 5
+mov r0, 4
 r1 = call __heap(r0)
-vt ObjectType Nothing (Ident "C"), r1
+vt ObjectType Nothing (Ident "A"), r1
 store i0, r1
-mov r2, 112
-load r3, i0
-store [r3+32], r2
-load r4, i0
-r5 = load [r4+32]
-voidcall printInt(r5)
-mov r6, 0
-ret r6
+mov r2, 5
+mov r3, 1
+r4 = r2+r3
+r6 = call __heap(r4)
+store [r6+0], r2
+load r7, i0
+store [r7+8], r6
+mov r8, 123
+load r9, i0
+mov r10, 2
+r11 = load [r9+8]
+store [r11+8+r10*8], r8
+load r12, i0
+mov r13, 2
+r14 = load [r12+8]
+r15 = load [r14+8+r13*8]
+voidcall printInt(r15)
+mov r16, 0
+ret r16

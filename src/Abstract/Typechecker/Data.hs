@@ -115,6 +115,16 @@ setObjectCheck s (Just (ObjectType _ i)) = TypeCheckerS {
   enforceAttr = enforceAttr s,
   self = self s
 }
+setObjectCheck s (Just (Array _ _)) = TypeCheckerS {
+  typeEnv = typeEnv s,
+  classEnv = classEnv s,
+  funEnv = funEnv s,
+  scope = scope s,
+  expectedReturnType = expectedReturnType s,
+  objectCheck = Just (Ident "__arr"),
+  enforceAttr = enforceAttr s,
+  self = self s
+}
 setObjectCheck s Nothing = TypeCheckerS {
   typeEnv = typeEnv s,
   classEnv = classEnv s,

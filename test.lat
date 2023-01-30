@@ -14,8 +14,9 @@ class C extends A {
 }
 
 int main() {
-    A a = new C;
-    a.h = 112;
-    printInt(a.h);
+    A a = new A;
+    a.arr = new int[5];
+    a.arr[2] = 123;
+    printInt(a.arr[2]);
     return 0;
 }

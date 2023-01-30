@@ -94,16 +94,26 @@ quadruplizeExtIdent (ArrId pos ident expr)  reg = do
             addQuad $ StoreIndir addr 8 (Just index) 8 (Just reg)
 
 quadruplizeExtIdent (AttrId pos expr1 expr2) reg = do
-    (addr, offset) <- quadruplizeAddr (EObject Nothing expr1 expr2)
-    addQuad $ StoreIndir addr (offset + 8) Nothing 0 (Just reg)
+    (addr, offset, offreg, offset2) <- quadruplizeAddr (EObject Nothing expr1 expr2)
+    addQuad $ StoreIndir addr offset offreg offset2 (Just reg)
 
-quadruplizeAddr :: Expr -> QuadruplesState (Register, Offset)
+quadruplizeAddr :: Expr -> QuadruplesState (Register, Offset, Maybe Register, Offset)
 quadruplizeAddr (EObject _ expr1 (EVar _ ident)) = do
     left <- quadruplizeExpr expr1
     off <- getFieldOffsetFromReg left ident
     t <- getFieldTypeFromReg left ident
     setObjectGeneration Nothing
-    return (left, off)
+    return (left, off + 8, Nothing, 0)
+
+quadruplizeAddr (EObject _ expr1 (EArr _ ident expr2)) = do
+    left <- quadruplizeExpr expr1
+    index <- quadruplizeExpr expr2
+    off <- getFieldOffsetFromReg left ident
+    t <- getFieldTypeFromReg left ident
+    arr <- getRegister t
+    setObjectGeneration Nothing
+    addQuad $ LoadIndir left (off + 8) Nothing 0 arr
+    return (arr, 8, Just index, 8)
 
 quadruplizeAddr (EObject _ expr1 expr2) = do
     left <- quadruplizeExpr expr1
@@ -124,7 +134,6 @@ quadruplizeStmt (Ass pos ident expr)            = do
     reg <- quadruplizeExpr expr
     quadruplizeExtIdent ident reg
 
-
 quadruplizeStmt (Incr pos ident)                = do
     st <- gets localStore
     case ident of
@@ -132,11 +141,11 @@ quadruplizeStmt (Incr pos ident)                = do
                     Nothing -> undefined
                     Just mem -> do
                         addQuad $ Inc mem
-      ArrId _ id ex -> do
+      ArrId _ id e -> do
         case M.lookup id (varToMem st) of
           Nothing -> undefined
           Just arr -> do
-            index <- quadruplizeExpr ex
+            index <- quadruplizeExpr e
             m1 <- getRegister rawInt
             res <- getRegister rawInt
             load <- getRegister rawInt
@@ -146,7 +155,8 @@ quadruplizeStmt (Incr pos ident)                = do
             addQuad $ MovV (QInt 1) m1
             addQuad $ Add load m1 res
             addQuad $ StoreIndir addr 8 (Just index) 8 (Just res)
-      AttrId ma ex ex' -> undefined
+      AttrId ma e1 e2 -> do
+        quadruplizeStmt (Ass pos ident (EAdd pos (EObject pos e1 e2) (Plus pos) (ELitInt pos 1)))
 
 
 quadruplizeStmt (Decr pos ident)                = do
@@ -170,7 +180,8 @@ quadruplizeStmt (Decr pos ident)                = do
             addQuad $ MovV (QInt 1) m1
             addQuad $ Sub load m1 res
             addQuad $ StoreIndir addr 8 (Just index) 8 (Just res)
-      AttrId ma ex ex' -> undefined
+      AttrId ma e1 e2 -> do
+        quadruplizeStmt (Ass pos ident (EAdd pos (EObject pos e1 e2) (Minus pos) (ELitInt pos 1)))
 
 quadruplizeStmt (Abs.Ret pos expr)              = do
     reg <- quadruplizeExpr expr
@@ -331,15 +342,29 @@ quadruplizeExpr e@(EObject pos expr1 expr2) = do
 
 quadruplizeExpr (EArr pos ident expr)     = do
     s <- gets localStore
-    case M.lookup ident (varToMem s) of
-      Nothing -> undefined
-      Just arr@(QIndex _ t) -> do
-        index <- quadruplizeExpr expr
-        addr <- getRegister rawInt
-        res <- getRegister t
-        addQuad $ Load arr addr
-        addQuad $ LoadIndir addr 8 (Just index) 8 res
-        return res
+    obj <- gets objectGeneration
+    index <- quadruplizeExpr expr
+    case obj of
+      Nothing ->  case M.lookup ident (varToMem s) of
+                    Nothing -> undefined
+                    Just arr@(QIndex _ t) -> do
+                        addr <- getRegister rawInt
+                        res <- getRegister t
+                        addQuad $ Load arr addr
+                        addQuad $ LoadIndir addr 8 (Just index) 8 res
+                        return res
+      Just addr -> do
+            off <- getFieldOffsetFromReg addr ident
+            t <- getFieldTypeFromReg addr ident
+            arr <- getRegister t
+            addQuad $ LoadIndir addr (off + 8) Nothing 0 arr
+            case t of
+              Array _ t1 -> do
+                res <- getRegister t1
+                addQuad $ LoadIndir arr 8 (Just index) 8 res
+                return res
+              _ -> undefined
+
 
 quadruplizeExpr (EVar pos ident)          = do
     s <- gets localStore

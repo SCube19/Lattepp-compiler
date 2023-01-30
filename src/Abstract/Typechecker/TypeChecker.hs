@@ -240,7 +240,7 @@ typeCheckExpr (EObject pos expr1 expr2) = do
       case type1 of
         Array _ arrT -> case expr2 of
           EVar _ ident -> if ident == Ident "length"
-            then return arrT
+            then return (Primitive pos (Int pos))
             else throwException $ IllegalArrayField pos
           _ -> throwException $ IllegalArrayField pos
         _ -> do
@@ -252,14 +252,14 @@ typeCheckExpr (EObject pos expr1 expr2) = do
           case findAttr st t ident of
             Nothing -> throwException $ UndefinedObjectFieldException pos ident
             Just t  -> do
-              ensureObject pos t
+              ensureObjectOrArray pos t
               put $ setObjectCheck st (Just t)
               typeCheckExpr expr2
         EApp _ ident exprs -> do
           case findMethod st t ident of
             Nothing -> throwException $ UndefinedObjectFieldException pos ident
             Just (rType, args) -> do
-              ensureObject pos rType
+              ensureObjectOrArray pos rType
               ensureArgTypes pos args exprs
               put $ setObjectCheck st (Just rType)
               typeCheckExpr expr2
@@ -267,14 +267,26 @@ typeCheckExpr (EObject pos expr1 expr2) = do
 
 typeCheckExpr (EArr pos ident expr) = do
   st <- get
-  case findVarInState st ident of
-    Nothing -> throwException $ UndefinedVariableException pos ident
-    Just t  -> do
-      ensureType rawInt expr
-      ensureArray pos t
-      case t of
-        Array pos2 t -> return t
-        _            -> throwException $ WildCardException pos
+  case objectCheck st of
+    Nothing ->
+      case findVarInState st ident of
+          Nothing -> throwException $ UndefinedVariableException pos ident
+          Just t  -> do
+            ensureType rawInt expr
+            ensureArray pos t
+            case t of
+              Array pos2 t -> return t
+              _            -> throwException $ WildCardException pos
+    Just t ->
+      case findAttr st t ident of
+          Nothing -> throwException $ UndefinedObjectFieldException pos ident
+          Just t -> do
+            ensureType rawInt expr
+            ensureArray pos t
+            put $ setObjectCheck st Nothing
+            case t of
+              Array pos2 t -> return t
+              _            -> throwException $ WildCardException pos
 
 typeCheckExpr (EVar pos ident) = do
   st <- get
@@ -282,11 +294,17 @@ typeCheckExpr (EVar pos ident) = do
     Nothing -> case findVarInState st ident of
       Nothing -> throwException $ UndefinedVariableException pos ident
       Just t  -> return t
-    Just t -> case findAttr st t ident of
-      Nothing -> throwException $ UndefinedObjectFieldException pos ident
-      Just t  -> do
-        put $ setObjectCheck st Nothing
-        return t
+    Just t -> case t of
+          Ident "__arr" ->
+            if ident == Ident "length" then
+                return $ Primitive pos (Int pos)
+            else
+                throwException $ IllegalArrayField pos
+          _ -> case findAttr st t ident of
+                  Nothing -> throwException $ UndefinedObjectFieldException pos ident
+                  Just t  -> do
+                    put $ setObjectCheck st Nothing
+                    return t
 
 typeCheckExpr (ELitInt pos val     ) = return $ Primitive pos (Int pos)
 
