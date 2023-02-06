@@ -1,39 +1,44 @@
-class A
-arr^8 > 0
-c^8 > 8
-x^8 > 16
-vtab Nothing
-endclass
-class B
-x^8 > 0
-y^8 > 8
-vtab Nothing
-endclass
-class C $ A
-h^8 > 24
-vtab Nothing
-endclass
-main: > 0 | lcount: 1
-mov r0, 4
-r1 = call __heap(r0)
-vt ObjectType Nothing (Ident "A"), r1
-store i0, r1
-mov r2, 5
-mov r3, 1
-r4 = r2+r3
-r6 = call __heap(r4)
-store [r6+0], r2
-load r7, i0
-store [r7+8], r6
-mov r8, 123
+main: > 0 | lcount: 0
+mov r0, 1000000
+mov r1, 0
+r2 = call sum(r0,r1)
+voidcall printInt(r2)
+mov r3, 0
+ret r3
+sum: > 0 | lcount: 3
+arg i0, 0
+arg i1, 1
+load r4, i0
+mov r5, 0
+cmp r4, r5
+r6 = phi je L1:L2:
+mov r7, 0
+cmp r6, r7
+je L0:
+load r8, i1
+ret r8
+L0:
 load r9, i0
-mov r10, 2
-r11 = load [r9+8]
-store [r11+8+r10*8], r8
-load r12, i0
-mov r13, 2
-r14 = load [r12+8]
-r15 = load [r14+8+r13*8]
-voidcall printInt(r15)
-mov r16, 0
-ret r16
+store i2, r9
+load r11, i0
+mov r12, 2
+r10 = r11%r12
+mov r13, 1
+cmp r10, r13
+r14 = phi je L4:L5:
+mov r15, 0
+cmp r14, r15
+je L3:
+mov r17, -1
+load r18, i0
+r16 = r17*r18
+store i2, r16
+L3:
+load r19, i0
+mov r20, 1
+r21 = r19-r20
+load r22, i1
+load r23, i2
+r24 = r22+r23
+r25 = call sum(r21,r24)
+ret r25

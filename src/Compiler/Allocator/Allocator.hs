@@ -8,6 +8,7 @@ import           Compiler.Data           (AsmMem (RegOff),
                                           AsmRegister (RBP), AsmValue (VInt))
 import           Control.Monad.RWS       (MonadIO (liftIO), MonadState (get),
                                           gets, when)
+import           Data.List               (nub)
 import qualified Data.Map                as M
 import qualified Data.Set                as S
 import           Quadruples.Data         (Quadruple (MovV), Register,
@@ -48,7 +49,7 @@ makeAllocation :: [Quadruple] -> Int -> AllocatorState ()
 makeAllocation [] _ = return ()
 makeAllocation (q:qs) i = do
     ints <- gets integers
-    let all = filter (\x -> not $ S.member x ints) (extractAll q)
+    let all = nub $ filter (\x -> not $ S.member x ints) (extractAll q)
     fu <- gets fusage
     lu <- gets lusage
     mapM_ (\r -> do
@@ -59,7 +60,6 @@ makeAllocation (q:qs) i = do
                 when (i == n) (do
                 when (null (memoryPool st1)) (do
                     o <- gets usedStackOffset
-                    liftIO $ print $ "off " ++ show o
                     off <- getStackOffset
                     addToPool $ MemOp $ RegOff RBP off)
                 st3 <- get

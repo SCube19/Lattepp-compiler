@@ -2,7 +2,7 @@ module Quadruples.Optimizer.Optimizer where
 import           Compiler.Data                  (AsmOperand (ValOp),
                                                  AsmValue (VInt))
 import           Control.Monad.Except           (MonadIO (liftIO), runExcept,
-                                                 runExceptT)
+                                                 runExceptT, when)
 import           Control.Monad.State            (MonadTrans (lift),
                                                  StateT (runStateT), evalState,
                                                  evalStateT, gets, modify,
@@ -16,7 +16,7 @@ import           Quadruples.Optimizer.Data      (OptimizerS (copy, fusage, index
                                                  OptimizerState, addAcc,
                                                  decreaseRemovalMapping,
                                                  initOptimizerS,
-                                                 initRemovalMappng,
+                                                 initRemovalMapping,
                                                  insertFirstIndexUsage,
                                                  insertFirstUsage,
                                                  insertLastIndexUsage,
@@ -118,7 +118,7 @@ deadRegisters (q:qs) = do
                 case M.lookup reg l of
                     Nothing -> undefined
                     Just m -> do
-                        unless (n == m) (addAcc q)
+                        when (n /= m || isCall q) (addAcc q)
                         deadRegisters qs
 
 
@@ -178,7 +178,7 @@ _liveRangesIndex qi i = do
 fillHoles :: [Quadruple] -> Int -> OptimizerState ()
 fillHoles qs size = do
     lr <- gets localRemoved
-    initRemovalMappng size
+    initRemovalMapping size
     createRemovalMapping (sort lr) size
     mapIndexes qs
 
@@ -209,3 +209,9 @@ mapIndexes (q:qs) = do
         _            -> addAcc q
     mapIndexes qs
 
+isCall :: Quadruple -> Bool
+isCall Call {}      = True
+isCall VCall {}     = True
+isCall VoidVCall {} = True
+isCall VoidCall {}  =  True
+isCall _            = False

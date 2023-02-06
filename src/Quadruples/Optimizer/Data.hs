@@ -148,8 +148,8 @@ mapIntIndex (QIndex i t) m = case M.lookup i m of
     Nothing -> QIndex i t
     Just n  -> QIndex n t
 
-initRemovalMappng :: Int -> OptimizerState ()
-initRemovalMappng size = modify (\s -> OptimizerS {
+initRemovalMapping :: Int -> OptimizerState ()
+initRemovalMapping size = modify (\s -> OptimizerS {
     quadAcc = quadAcc s,
     copy = copy s,
     fusage = fusage s,

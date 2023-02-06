@@ -80,8 +80,9 @@ quadruplizeExtIdent (Id pos ident) reg          = do
     st <- gets localStore
     case M.lookup ident (varToMem st) of
                 Nothing -> undefined
-                Just mem -> do
-                        addQuad $ Store reg mem
+                Just (QIndex i _) -> do
+                        setMem ident (QIndex i (regType reg))
+                        addQuad $ Store reg (QIndex i (regType reg))
 
 quadruplizeExtIdent (ArrId pos ident expr)  reg = do
     st <- gets localStore
@@ -276,11 +277,9 @@ quadruplizeItem t (NoInit pos ident)    = do
             addQuad $ Store reg mem
       ObjectType ma id -> do
             obj <- store ident rawVoid
-            addQuad $ StoreIndir reg 0 Nothing 0 Nothing
             addQuad $ Store reg obj
       Array _ t1 -> do
             arr <- store ident rawVoid
-            addQuad $ StoreIndir reg 0 Nothing 0 Nothing
             addQuad $ Store reg arr
       _ -> undefined
 
@@ -343,7 +342,9 @@ quadruplizeExpr e@(EObject pos expr1 expr2) = do
 quadruplizeExpr (EArr pos ident expr)     = do
     s <- gets localStore
     obj <- gets objectGeneration
+    setObjectGeneration Nothing
     index <- quadruplizeExpr expr
+    setObjectGeneration obj
     case obj of
       Nothing ->  case M.lookup ident (varToMem s) of
                     Nothing -> undefined
@@ -369,6 +370,7 @@ quadruplizeExpr (EArr pos ident expr)     = do
 quadruplizeExpr (EVar pos ident)          = do
     s <- gets localStore
     obj <- gets objectGeneration
+
     case obj of
       Nothing -> case M.lookup ident (varToMem s) of
                     Nothing -> undefined
@@ -405,24 +407,40 @@ quadruplizeExpr (EString pos s)           = do
     return reg
 
 quadruplizeExpr app@(EApp pos (Ident ident) exprs) = do
+    obj <- gets objectGeneration
+    setObjectGeneration Nothing
     args <- mapM quadruplizeExpr exprs
-    p <- gets qprogram
-    vc <- isVoidCall app
-    if vc then do
-        addQuad $ VoidCall ident args
-        return $ Register (-1) rawVoid
-    else do
-        case M.lookup ident (funcs p) of
-            Nothing -> case M.lookup ident predefinedFuncs of
-                Nothing -> undefined
-                Just t -> do
-                        reg <- getRegister t
-                        addQuad $ Call ident args reg
-                        return reg
-            Just f -> do
-                    reg <- getRegister $ raw (ret f)
-                    addQuad $ Call ident args reg
-                    return reg
+    setObjectGeneration obj
+
+    case obj of
+      Nothing -> do
+            p <- gets qprogram
+            vc <- isVoidCall app
+            if vc then do
+                addQuad $ VoidCall ident args
+                return $ Register (-1) rawVoid
+            else do
+                case M.lookup ident (funcs p) of
+                    Nothing -> case M.lookup ident predefinedFuncs of
+                        Nothing -> undefined
+                        Just t -> do
+                                reg <- getRegister t
+                                addQuad $ Call ident args reg
+                                return reg
+                    Just f -> do
+                            reg <- getRegister $ raw (ret f)
+                            addQuad $ Call ident args reg
+                            return reg
+      Just addr -> do
+            t <- getMethodRetFromReg addr (Ident ident)
+            off <- getMethodOffsetFromReg addr (Ident ident)
+            if raw t == rawVoid then do
+                addQuad $ VoidVCall ident (addr:args) addr off
+                return $ Register (-1) rawVoid
+            else do
+                res <- getRegister t
+                addQuad $ VCall ident (addr:args) addr off res
+                return res
 
 quadruplizeExpr (Abs.Neg pos expr)        = do
     res <- getRegister rawInt

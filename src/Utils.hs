@@ -53,8 +53,6 @@ getArrayType :: Type -> Type
 getArrayType (Array _ t) = raw t
 getArrayType _           = undefined
 
-makeUnique :: (Ord a) => [a] -> [a]
-makeUnique qs = S.toList (S.fromList qs)
 -- -------------PRETTY-------------------------------------------------------------------
 class Pretty a where
     pretty :: a -> String

@@ -192,7 +192,7 @@ instance Show AsmOperand where
     show (MemOp x) = show x
 
 instance Show CallTarget where
-    show (CReg r)   = show r
+    show (CReg r)   = "[" ++ show r ++ "]"
     show (CLabel l) = show l
 
 instance Show OpSize where
@@ -240,5 +240,5 @@ instance Show AsmInstr where
         if size `mod` 4 == 0 then intercalate "," (replicate (div size 4) "0")
         else if even size then intercalate "," (replicate (div size 2) "0")
         else intercalate "," (replicate size "0") ++ "\n"
-    show (VTab l methods) = "\t" ++ l ++ " dd " ++ intercalate "," methods ++ "\n"
+    show (VTab l methods) = "\t" ++ l ++ " dq " ++ intercalate "," methods ++ "\n"
 

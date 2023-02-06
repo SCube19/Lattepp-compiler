@@ -73,6 +73,7 @@ Example
 |   |   |   ├── TypeChecker.hs  # optimizer main logic
 |   |   |   ├── Data.hs         # data structures and associated logic
 |   |   |   └── Utils.hs        # general purpose logic
+|   |   └── Self.hs             # adding self. prefix to attribute usages inside methods
 |   ├── Compiler
 |   |   ├── Optimizer
 |   |   |   └── Optimizer.hs    # redundant code optimizer

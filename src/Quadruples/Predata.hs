@@ -7,14 +7,14 @@ import qualified Control.Applicative
 import           Control.Monad.Except      (ExceptT)
 import           Control.Monad.State       (StateT, modify)
 import           Data.Function             (on)
-import           Data.List                 (sortBy)
+import           Data.List                 (nub, sortBy)
 import qualified Data.Map                  as M
 import           Data.Maybe                (fromMaybe)
 import qualified Data.Set                  as S
 import           Debug.Trace               (trace)
 import           Syntax.AbsLattepp         (BNFC'Position, Ident (Ident),
                                             TopDef' (ClassDef), Type, Type')
-import           Utils                     (Pretty (pretty), makeUnique)
+import           Utils                     (Pretty (pretty))
 
 -------------------------------------- PREPROCESS -------------------------------------------------
 
@@ -102,7 +102,7 @@ getPreMethodOffset c i = case M.lookup i (methods c) of
         Just off -> case super c of
           Nothing -> off
           Just sup ->
-            let all = makeUnique $ allMethods sup in
+            let all = nub $ allMethods sup in
             length all * 8 + off
 
 

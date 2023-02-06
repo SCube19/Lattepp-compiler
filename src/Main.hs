@@ -1,4 +1,5 @@
 import           Abstract.Optimizer.Optimizer      (cleanDeadCode, optimize)
+import           Abstract.Self                     (addSelf)
 import           Abstract.Typechecker.TypeChecker  (checkReturn, typeCheck)
 import           Compiler.Compiler                 (compile)
 import           Control.Monad.IO.Class            (MonadIO (liftIO))
@@ -7,6 +8,7 @@ import           Data.Either                       (either)
 import           Syntax.AbsLattepp                 (Program)
 import           Syntax.LexLattepp                 (tokens)
 import           Syntax.ParLattepp                 (myLexer, pProgram)
+import           Syntax.PrintLattepp               (printTree)
 import           System.Directory.Internal.Prelude (exitFailure, getArgs,
                                                     hPutStr, hPutStrLn, stderr,
                                                     stdout)
@@ -32,7 +34,8 @@ runProgram s = do
   cleaned <- cleanDeadCode optimized
   checkReturn cleaned
   liftIO $ hPutStrLn stderr "OK"
-  compile cleaned tcEnv
+  selfed <- addSelf cleaned
+  compile selfed tcEnv
 
 dump :: String -> String -> IO ()
 dump file asm = do

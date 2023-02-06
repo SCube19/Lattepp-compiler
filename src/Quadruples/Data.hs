@@ -4,7 +4,7 @@ import           Control.Monad.Cont         (MonadIO (liftIO), when)
 import           Control.Monad.Trans.Except (ExceptT)
 import           Control.Monad.Trans.State  (StateT, get, gets, modify, put)
 import           Data.Function              (on)
-import           Data.List                  (intercalate, sortBy)
+import           Data.List                  (intercalate, nub, sortBy)
 import qualified Data.Map                   as M
 import           Data.Maybe                 (fromJust, fromMaybe, isNothing)
 import qualified Data.Set                   as S
@@ -16,8 +16,7 @@ import           Syntax.AbsLattepp          (Block' (Block), Ident (Ident),
                                              Program, TopDef, TopDef' (FnDef),
                                              Type,
                                              Type' (Array, ObjectType, Primitive))
-import           Utils                      (Raw (raw), makeUnique, rawStr,
-                                             rawVoid)
+import           Utils                      (Raw (raw), rawStr, rawVoid)
 
 type QuadruplesState = StateT QuadrupleS (ExceptT String IO)
 data QuadrupleS = QuadrupleS {
@@ -34,6 +33,20 @@ data LocalStore = LocalStore {
     freeMem  :: [QIndex],
     varToMem :: M.Map Ident QIndex
 }
+
+setMem :: Ident -> QIndex -> QuadruplesState ()
+setMem i q = modify (\s -> QuadrupleS {
+    qprogram = qprogram s,
+    maxLocals = maxLocals s,
+    currentFun = currentFun s,
+    objectGeneration = objectGeneration s,
+    nextReg = nextReg s,
+    nextLabel = nextLabel s,
+    localStore = LocalStore {
+        freeMem = freeMem (localStore s),
+        varToMem = M.insert i q (varToMem $ localStore s)
+    }
+})
 
 initLocalStore :: Int -> LocalStore
 initLocalStore size = LocalStore {
@@ -323,6 +336,29 @@ data QCField = QCField {
     fieldSize   :: Int
 }
 
+getFunOffset :: QFun -> Int
+getFunOffset f = offset f
+
+getMethodOffsetFromReg :: Register -> Ident -> QuadruplesState Int
+getMethodOffsetFromReg (Register _ t) i = do
+    case t of
+        ObjectType _ (Ident id) -> do
+            p <- gets qprogram
+            let c = fromMaybe undefined (M.lookup id (classes p))
+            getMethodOffset c i
+        _ -> undefined
+
+getMethodOffset :: QClass -> Ident -> QuadruplesState Int
+getMethodOffset c (Ident i) = do
+    p <- gets qprogram
+    case super c of
+      Nothing -> case M.lookup i (methods c) of
+        Nothing     -> undefined
+        Just method -> return $ offset method
+      Just sup -> case M.lookup i (methods c) of
+        Nothing     -> getMethodOffset sup (Ident i)
+        Just method -> return $ offset method
+
 getFieldOffsetFromReg :: Register -> Ident -> QuadruplesState Int
 getFieldOffsetFromReg (Register _ t) i = do
     case t of
@@ -362,6 +398,26 @@ getFieldType c (Ident i) = do
       Just sup -> case M.lookup i (fields c) of
         Nothing    -> getFieldType sup (Ident i)
         Just field -> return $ fieldType field
+
+getMethodRetFromReg :: Register -> Ident -> QuadruplesState Type
+getMethodRetFromReg (Register _ t) i = do
+    case t of
+      ObjectType _ (Ident id) -> do
+        p <- gets qprogram
+        let c = fromMaybe undefined (M.lookup id (classes p))
+        getMethodRet c i
+      _ -> undefined
+
+getMethodRet :: QClass -> Ident -> QuadruplesState Type
+getMethodRet c (Ident i) = do
+    p <- gets qprogram
+    case super c of
+      Nothing -> case M.lookup i (methods c) of
+        Nothing     -> undefined
+        Just method -> return $ ret method
+      Just sup -> case M.lookup i (methods c) of
+        Nothing     -> getMethodRet sup (Ident i)
+        Just method -> return $ ret method
 
 getVTableSize :: QClass -> Int
 getVTableSize c = do
@@ -409,16 +465,16 @@ getDefiningClass c m =
         getDefiningClass sup m
     Just _ -> c
 
-allMethods :: QClass -> [String]
+allMethods :: QClass -> [QFun]
 allMethods c =
-    let ms = map fst (M.toList (methods c)) in
+    let ms = map snd (M.toList (methods c)) in
     case super c of
         Nothing  -> ms
         Just sup -> ms ++ allMethods sup
 
 gatherMethods :: QClass -> [String]
 gatherMethods c =
-    let all = makeUnique $ allMethods c in
+    let all = nub $ map fident $ sortBy (compare `on` getFunOffset) (allMethods c) in
     _gatherMethods c all
 
 _gatherMethods :: QClass -> [String] -> [String]
@@ -492,7 +548,13 @@ getClassSize (Ident i) n = do
 
 newtype QLabel = QLabel Int deriving (Eq, Ord)
 
-data QIndex = QIndex Int Type deriving (Eq, Ord)
+data QIndex = QIndex Int Type
+
+instance Eq QIndex where
+    (==) (QIndex i1 _) (QIndex i2 _) = i1 == i2
+
+instance Ord QIndex where
+    compare (QIndex i1 _) (QIndex i2 _) = compare i1 i2
 
 type Offset = Int
 

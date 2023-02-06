@@ -9,7 +9,7 @@ import           Control.Monad.Cont           (MonadIO (liftIO),
                                                MonadTrans (lift))
 import           Control.Monad.Trans.Except   (ExceptT)
 import           Control.Monad.Trans.State    (evalStateT, get, gets)
-import           Data.List                    (delete)
+import           Data.List                    (delete, sortBy)
 import qualified Data.Map                     as M
 import           Data.Maybe                   (fromMaybe)
 import qualified Data.Set                     as S
@@ -301,11 +301,11 @@ compileQuad (Quad.StoreIndir r1 off1 mr2 off2 mval) = do
 compileQuad (Quad.Call name args res)             = do
     regs <- gets mapping
     let asmres = fromMaybe undefined (M.lookup res regs)
-    call name args
+    call (CLabel $ AsmLabel name) args
     addInstr $ X86.Mov QWord asmres (RegOp RAX)
 
 compileQuad (Quad.VoidCall name args)             = do
-    call name args
+    call (CLabel $ AsmLabel name) args
 
 compileQuad (Quad.VCall name args this off1 res) = do
     regs <- gets mapping
@@ -313,16 +313,17 @@ compileQuad (Quad.VCall name args this off1 res) = do
     let asmthis = fromMaybe undefined (M.lookup this regs)
     addInstr $ X86.Mov QWord (RegOp RAX) asmthis
     addInstr $ X86.Mov QWord (RegOp RAX) (MemOp $ RegOff RAX 0)
-    addInstr $ X86.Mov QWord (RegOp RAX) (MemOp $ RegOff RAX off1)
-    call name args
+    addInstr $ X86.Add QWord (RegOp RAX) (ValOp $ VInt off1)
+    call (CReg RAX) args
+    addInstr $ X86.Mov QWord asmres (RegOp RAX)
 
 compileQuad (Quad.VoidVCall name args this off1) = do
     regs <- gets mapping
     let asmthis = fromMaybe undefined (M.lookup this regs)
     addInstr $ X86.Mov QWord (RegOp RAX) asmthis
     addInstr $ X86.Mov QWord (RegOp RAX) (MemOp $ RegOff RAX 0)
-    addInstr $ X86.Mov QWord (RegOp RAX) (MemOp $ RegOff RAX off1)
-    call name args
+    addInstr $ X86.Add QWord (RegOp RAX) (ValOp $ VInt off1)
+    call (CReg RAX) args
 
 compileQuad (Quad.Vtab r1 t) = do
     classes <- gets X86.classes
@@ -370,8 +371,8 @@ retPop = do
     addInstr $ Pop QWord (RegOp RBX)
     addInstr Leave
 
-call :: String -> [Register] -> CompilerState ()
-call name args = do
+call :: CallTarget -> [Register] -> CompilerState ()
+call target args = do
     regs <- gets mapping
     newArgs <- passRegs args
     mapM_ (\r -> do
@@ -379,7 +380,7 @@ call name args = do
     when (odd $ length newArgs) (addInstr $ X86.Sub QWord (RegOp RSP) (ValOp $ VInt 8))
     addInstr $ Push QWord asmr
     ) (reverse newArgs)
-    addInstr $ X86.Call (CLabel $ AsmLabel name)
+    addInstr $ X86.Call target
     addInstr $ X86.Add QWord (RegOp RSP) (ValOp $ VInt (align16 $ 8 * length newArgs))
 
 passRegs :: [Register] -> CompilerState [Register]
