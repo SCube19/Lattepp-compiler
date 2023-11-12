@@ -14,9 +14,11 @@ import           Quadruples.Optimizer.Optimizer (optimizeQProgram)
 import           Quadruples.Predata
 import           Quadruples.Preprocess          (preprocess)
 import           Syntax.AbsLattepp              as Abs
-import           Utils                          (Raw (raw), getArrayType,
-                                                 isArrayType, rawBool, rawInt,
-                                                 rawStr, rawVoid)
+import           Utils                          (Pretty (pretty), Raw (raw),
+                                                 getArrayType, isArrayType,
+                                                 prettyPrint, printExpr,
+                                                 rawBool, rawInt, rawStr,
+                                                 rawVoid)
 
 --usunąć indexy na redeklaracji robić nowy rejestr a nie load store
 quadruplize :: Program -> TypeCheckerS -> QuadruplesState QProgram
@@ -95,11 +97,14 @@ quadruplizeExtIdent (ArrId pos ident expr)  reg = do
             addQuad $ StoreIndir addr 8 (Just index) 8 (Just reg)
 
 quadruplizeExtIdent (AttrId pos expr1 expr2) reg = do
+    prettyPrint expr1
+    prettyPrint expr2
     (addr, offset, offreg, offset2) <- quadruplizeAddr (EObject Nothing expr1 expr2)
     addQuad $ StoreIndir addr offset offreg offset2 (Just reg)
 
 quadruplizeAddr :: Expr -> QuadruplesState (Register, Offset, Maybe Register, Offset)
 quadruplizeAddr (EObject _ expr1 (EVar _ ident)) = do
+    obj <- gets objectGeneration
     left <- quadruplizeExpr expr1
     off <- getFieldOffsetFromReg left ident
     t <- getFieldTypeFromReg left ident

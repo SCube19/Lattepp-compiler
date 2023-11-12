@@ -1,3 +1,15 @@
 tester/
 lattests/
-test.sh
+a.out
+cleaned.txt
+ctest.txt
+fixes.txt
+latc
+latc_x86-64
+optimized.txt
+peda-session-test.txt
+tokens.txt
+tests/
+selfed.txt
+test*
+quads.txt

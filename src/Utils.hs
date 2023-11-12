@@ -2,6 +2,7 @@
 {-# LANGUAGE InstanceSigs      #-}
 module Utils where
 
+import           Control.Monad.IO.Class            (MonadIO (liftIO))
 import           Control.Monad.Trans.Class         (MonadTrans (lift))
 import           Control.Monad.Trans.Except        (throwE)
 import           Control.Monad.Trans.State         (StateT, get, put)
@@ -64,7 +65,7 @@ instance Pretty BNFC'Position where
 instance Pretty ExtIdent where
     pretty (Id _ ident)      = pretty ident
     pretty (ArrId _ ident _) = pretty ident
-    pretty (AttrId _ e1 e2)  = "obj attr"
+    pretty (AttrId _ e1 e2)  = pretty e1 ++ "." ++ pretty e2
 
 instance Pretty Ident where
     pretty (Ident x) = x
@@ -83,6 +84,47 @@ instance Pretty PrimType where
 
 instance Pretty Arg where
     pretty (Arg _ t i) = pretty t ++ " " ++ pretty i
+
+instance Pretty Expr where
+    pretty (ECast pos ident expr)    = "(" ++ pretty ident ++ ")" ++ pretty expr
+    pretty (ECastPrim pos t expr)    = "(" ++ pretty t ++ ")" ++ pretty expr
+    pretty (ENewObject pos ident)    = "new " ++ pretty ident
+    pretty (ENewArr pos t expr)      = "new " ++ pretty t ++ " " ++ "[" ++ pretty expr ++ "]"
+    pretty (ENull pos)               = "null"
+    pretty (EObject pos expr1 expr2) = pretty expr1 ++ "." ++ pretty expr2
+    pretty (EArr pos ident expr)     = pretty ident ++ "[" ++ pretty expr ++ "]"
+    pretty (EVar pos ident)          = "xddd" ++ pretty ident
+    pretty (ELitInt pos integer)     = "siur" ++ show integer
+    pretty (ELitTrue pos)            = "true"
+    pretty (ELitFalse pos)           = "false"
+    pretty (EString pos s)           = s
+    pretty (EApp pos ident exprs)    = pretty ident ++ "(" ++ intercalate "," (map pretty exprs) ++ ")"
+    pretty (Neg pos expr)            = "!" ++ pretty expr
+    pretty (Not pos expr)            = "-" ++ pretty expr
+    pretty (EMul pos expr1 op expr2) = "(" ++ pretty expr1 ++ ")" ++ pretty op ++ "(" ++ pretty expr1 ++ ")"
+    pretty (EAdd pos expr1 op expr2) = "(" ++ pretty expr1 ++ ")" ++ pretty op ++ "(" ++ pretty expr1 ++ ")"
+    pretty (ERel pos expr1 op expr2) = "(" ++ pretty expr1 ++ ")" ++ pretty op ++ "(" ++ pretty expr1 ++ ")"
+    pretty (EAnd pos expr1 expr2)    = "(" ++ pretty expr1 ++ ") && (" ++ pretty expr1 ++ ")"
+    pretty (EOr pos expr1 expr2)     = "(" ++ pretty expr1 ++ ") || (" ++ pretty expr1 ++ ")"
+
+instance Pretty MulOp where
+    pretty (Times _) = "*"
+    pretty (Div _)   = "/"
+    pretty (Mod _)   = "%"
+
+instance Pretty AddOp where
+    pretty (Plus _)  = "+"
+    pretty (Minus _) = "-"
+
+instance Pretty RelOp where
+    pretty (LTH _) = "<"
+    pretty (LE _)  = "<="
+    pretty (GTH _) = ">"
+    pretty (GE _)  = ">="
+    pretty (EQU _) = "=="
+    pretty (NE _)  = "!="
+
+
 -- ------------------------------------TYPE MANIP--------------------------------------------
 class Raw a where
     raw :: a -> a
@@ -177,9 +219,7 @@ printClassStmt (ClassDecl pos t items)                = pretty t ++ " " ++ inter
 printClassStmt (ClassMethod pos ret ident args block) = pretty ret ++ " " ++ pretty ident ++ "(" ++ intercalate "," (map pretty args) ++ ")\n" ++ printBlock block
 
 printExtIdent :: ExtIdent -> String
-printExtIdent (Id pos ident)           = pretty ident
-printExtIdent (ArrId pos ident expr)   = "array"
-printExtIdent (AttrId pos expr1 expr2) = "object"
+printExtIdent = pretty
 
 printStmt :: Stmt -> String
 printStmt (Empty pos)                     = ";\n"
@@ -201,34 +241,7 @@ printItem (NoInit pos ident)    = pretty ident
 printItem (Init pos ident expr) = pretty ident ++ " = " ++ printExpr expr
 
 printExpr :: Expr -> String
-printExpr (ECast pos ident expr)    = "cast"
-printExpr (ECastPrim pos t expr)    = "cast"
-printExpr (ENewObject pos ident)    = "newobj"
-printExpr (ENewArr pos t expr)      = "newarr"
-printExpr (ENull pos)               = "null"
-printExpr (EObject pos expr1 expr2) = "obj."
-printExpr (EArr pos ident expr)     = "arr[]"
-printExpr (EVar pos ident)          = pretty ident
-printExpr (ELitInt pos integer)     = show integer
-printExpr (ELitTrue pos)            = "true"
-printExpr (ELitFalse pos)           = "false"
-printExpr (EString pos s)           = s
-printExpr (EApp pos ident exprs)    = pretty ident ++ "(" ++ intercalate "," (map printExpr exprs) ++ ")"
-printExpr (Neg pos expr)            = "-" ++ printExpr expr
-printExpr (Not pos expr)            = "!" ++ printExpr expr
-printExpr (EMul pos expr1 op expr2) = printExpr expr1 ++ (case op of
-   Times ma -> "*"
-   Div ma   -> "/"
-   Mod ma   -> "%") ++ printExpr expr2
-printExpr (EAdd pos expr1 op expr2) = printExpr expr1 ++ (case op of
-   Plus ma  -> "+"
-   Minus ma -> "-") ++ printExpr expr2
-printExpr (ERel pos expr1 op expr2) = printExpr expr1 ++ (case op of
-  LTH ma -> "<"
-  LE ma  -> "<="
-  GTH ma -> ">"
-  GE ma  -> ">="
-  EQU ma -> "=="
-  NE ma  -> "!=") ++ printExpr expr2
-printExpr (EAnd pos expr1 expr2)    = printExpr expr1 ++ "&&" ++ printExpr expr2
-printExpr (EOr pos expr1 expr2)     = printExpr expr1 ++ "||" ++ printExpr expr2
+printExpr = pretty
+
+prettyPrint :: (Pretty a, MonadIO m) => a -> m ()
+prettyPrint = liftIO . print . pretty

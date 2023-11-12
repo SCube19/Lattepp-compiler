@@ -2,7 +2,7 @@ all: build
 
 build: base src/Main.hs abstract quadruples compiler
 	gcc -c -g lib/runtime.c -o lib/runtime.o
-	ghc -isrc -package ghc src/Main.hs -o latc_x86-64
+	ghc -isrc -package ghc -package mtl src/Main.hs -o latc_x86-64
 	cp src/latc latc
 	chmod +x latc
 

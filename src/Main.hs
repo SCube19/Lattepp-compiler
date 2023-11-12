@@ -17,8 +17,8 @@ import           System.FilePath                   (replaceExtension,
                                                     takeBaseName, takeDirectory)
 import           System.IO                         ()
 import           System.Process                    (callCommand)
-import           Text.XHtml                        (object)
 import           Utils                             (exitError, printProgram)
+import qualified Utils                             as Syntax.AbsLattepp
 
 
 tokenize :: String -> ExceptT String IO Program
@@ -35,6 +35,10 @@ runProgram s = do
   checkReturn cleaned
   liftIO $ hPutStrLn stderr "OK"
   selfed <- addSelf cleaned
+  liftIO $ writeFile "tokens.txt" $ printTree tokens
+  liftIO $ writeFile "optimized.txt" $ printTree optimized
+  liftIO $ writeFile "cleaned.txt" $ printTree cleaned
+  liftIO $ writeFile "selfed.txt" $ printTree selfed
   compile selfed tcEnv
 
 dump :: String -> String -> IO ()
