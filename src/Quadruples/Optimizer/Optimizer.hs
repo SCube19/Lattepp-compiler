@@ -22,8 +22,8 @@ import           Quadruples.Optimizer.Data      (OptimizerS (copy, fusage, index
                                                  insertLastIndexUsage,
                                                  insertLastUsage, makeCopy,
                                                  mapIndex, mapIntIndex,
-                                                 removeIndex, resetAcc,
-                                                 resetCopy)
+                                                 releaseCopy, removeIndex,
+                                                 resetAcc, resetCopy)
 import           Quadruples.Optimizer.Lcse.Data (initLcseS)
 import           Quadruples.Optimizer.Lcse.Lcse (lcse)
 import           Quadruples.Optimizer.Utils     (basicBlockBoundry,
@@ -56,7 +56,8 @@ optimizeQuads qs size = do
     qs3 <- optRes $ fillHoles qs2 size
     qs4 <- lift $ evalStateT (lcse qs3) initLcseS
     liveRanges qs4 0
-    deadRegisters qs4
+    qs5 <- optRes $ deadRegisters qs4
+    copyPropagation qs5
 
 optRes :: OptimizerState () -> OptimizerState [Quadruple]
 optRes action = do
@@ -65,6 +66,7 @@ optRes action = do
     resetAcc
     return $ reverse res
 
+--responsible guy
 copyPropagation :: [Quadruple] -> OptimizerState ()
 copyPropagation [] = return ()
 
@@ -90,14 +92,14 @@ copyPropagation (q:qs) = do
         case q of
             Inc qi -> do
                 addAcc (Inc qi)
-                makeCopy qi qi
+                releaseCopy qi
             Dec qi -> do
                 addAcc (Dec qi)
-                makeCopy qi qi
+                releaseCopy qi
             Load qi reg -> addAcc (Load (getCp qi) reg)
             Store reg qi@(QIndex i t) -> do
                 addAcc (Store reg qi)
-                makeCopy qi qi
+                releaseCopy qi
             q -> addAcc q
         copyPropagation qs
 

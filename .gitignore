@@ -7,9 +7,12 @@ fixes.txt
 latc
 latc_x86-64
 optimized.txt
-peda-session-test.txt
+peda-session-*.txt
 tokens.txt
 tests/
 selfed.txt
 test*
 quads.txt
+error*
+quads*
+.gdb*

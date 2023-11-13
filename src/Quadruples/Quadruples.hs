@@ -97,8 +97,6 @@ quadruplizeExtIdent (ArrId pos ident expr)  reg = do
             addQuad $ StoreIndir addr 8 (Just index) 8 (Just reg)
 
 quadruplizeExtIdent (AttrId pos expr1 expr2) reg = do
-    prettyPrint expr1
-    prettyPrint expr2
     (addr, offset, offreg, offset2) <- quadruplizeAddr (EObject Nothing expr1 expr2)
     addQuad $ StoreIndir addr offset offreg offset2 (Just reg)
 

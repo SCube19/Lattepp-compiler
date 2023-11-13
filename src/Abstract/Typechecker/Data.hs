@@ -17,8 +17,8 @@ import           Syntax.AbsLattepp          (Arg, BNFC'Position, Block, Expr,
                                              Type' (Array, Fun, ObjectType, Primitive))
 import           Utils                      (Pretty (pretty), Raw (raw),
                                              firstDuplicateIndex, getArgIdent,
-                                             getArgType, rawInt, rawStr,
-                                             rawVoid, throwException)
+                                             getArgType, rawBool, rawInt,
+                                             rawStr, rawVoid, throwException)
 
 predefinedFunctions = [
   (Ident "printInt",    (rawVoid, [rawInt])),

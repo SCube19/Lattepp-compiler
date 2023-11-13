@@ -93,8 +93,8 @@ instance Pretty Expr where
     pretty (ENull pos)               = "null"
     pretty (EObject pos expr1 expr2) = pretty expr1 ++ "." ++ pretty expr2
     pretty (EArr pos ident expr)     = pretty ident ++ "[" ++ pretty expr ++ "]"
-    pretty (EVar pos ident)          = "xddd" ++ pretty ident
-    pretty (ELitInt pos integer)     = "siur" ++ show integer
+    pretty (EVar pos ident)          = pretty ident
+    pretty (ELitInt pos integer)     = show integer
     pretty (ELitTrue pos)            = "true"
     pretty (ELitFalse pos)           = "false"
     pretty (EString pos s)           = s

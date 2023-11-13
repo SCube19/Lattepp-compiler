@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 #define TRUE ~0
 
 extern void printInt(int32_t v)
@@ -12,15 +13,16 @@ extern void printString(char *v)
     if (v != NULL)
         printf("%s\n", v);
 }
+
 extern void error()
 {
     fprintf(stderr, "runtime error\n");
     exit(1);
 }
-extern int readInt()
+extern int64_t readInt()
 {
-    int32_t a;
-    if (scanf("%d", &a) == 0)
+    int64_t a;
+    if (scanf("%ld", &a) == 0)
         error();
     getchar();
     return a;

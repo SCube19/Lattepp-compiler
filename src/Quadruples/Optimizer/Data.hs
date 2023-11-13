@@ -171,3 +171,8 @@ decreaseRemovalMapping i1 = modify (\s -> OptimizerS {
     localRemoved = localRemoved s,
     indexRemovalMapping = M.insertWith (flip (-)) i1 1 (indexRemovalMapping s)
 })
+
+releaseCopy :: QIndex -> OptimizerState ()
+releaseCopy i = modify (\s -> s {
+    copy = M.mapWithKey (\k v -> if v == i then k else v) (copy s)
+})
