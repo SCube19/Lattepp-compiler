@@ -31,13 +31,11 @@ runProgram s = do
   tokens <- tokenize s
   tcEnv <- typeCheck tokens
   optimized <- optimize tokens
-  cleaned <- cleanDeadCode optimized
-  checkReturn cleaned
+  tcEnv2 <- checkReturn optimized
   liftIO $ hPutStrLn stderr "OK"
-  selfed <- addSelf cleaned
+  selfed <- addSelf optimized
   liftIO $ writeFile "tokens.txt" $ printTree tokens
   liftIO $ writeFile "optimized.txt" $ printTree optimized
-  liftIO $ writeFile "cleaned.txt" $ printTree cleaned
   liftIO $ writeFile "selfed.txt" $ printTree selfed
   compile selfed tcEnv
 

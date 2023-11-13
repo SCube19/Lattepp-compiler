@@ -3,40 +3,54 @@ module Abstract.Optimizer.Optimizer where
 import           Abstract.Optimizer.Data    (OptimizerS (OptimizerS, consts),
                                              OptimizerState,
                                              Value (BoolV, IntV, StrV),
-                                             castBool, castInteger, castString)
+                                             addConst, castBool, castInteger,
+                                             castString, constFromExpr,
+                                             localOptimizerEnv, mapConst,
+                                             removeChanges, removeConst,
+                                             resetConst, retBoolLit)
 import           Abstract.Optimizer.Utils
 import           Control.Monad.IO.Class     (MonadIO (liftIO))
 import           Control.Monad.Trans.Except (ExceptT, runExceptT)
 import           Control.Monad.Trans.State  (StateT (runStateT), evalStateT,
-                                             get, gets, put)
+                                             get, gets, modify, put)
+import           Data.Foldable              (Foldable (foldl'))
 import qualified Data.Map                   as M
+import qualified Data.Set                   as S
 import           Debug.Trace
 import           Syntax.AbsLattepp
 import           Utils                      (Raw (raw), rawBool, rawExtIdent,
                                              rawInt, rawStr)
 
 optimize :: Program -> ExceptT String IO Program
-optimize (Program pos defs) = do
+optimize p@(Program pos defs) = do
     newDefs <- evalStateT (mapM optimizeTopDef defs) (OptimizerS {consts = M.empty})
-    return $ Program pos newDefs
+    cleaned <- cleanDeadCode $ Program pos newDefs
+    if cleaned == p then
+        return cleaned
+    else
+        optimize cleaned
 
 optimizeTopDef :: TopDef -> OptimizerState TopDef
 optimizeTopDef (FnDef pos ret ident args block) = do
+    resetConst
     newBlock <- optimizeBlock block
     return $ FnDef pos ret ident args newBlock
 
 optimizeTopDef (ClassDef pos ident block) = do
+    resetConst
     newBlock <- optimizeClassBlock block
     return $ ClassDef pos ident newBlock
 
 optimizeTopDef (ExtClassDef pos ident ext block) = do
+    resetConst
     newBlock <- optimizeClassBlock block
     return $ ExtClassDef pos ident ext newBlock
 
 optimizeBlock :: Block -> OptimizerState Block
 optimizeBlock (Block pos stmts) = do
+    removeChanges stmts
     st <- get
-    newStmts <- mapM optimizeStmt stmts
+    newStmts <- localOptimizerEnv st $ mapM optimizeStmt stmts
     return $ Block pos newStmts
 
 optimizeClassBlock :: ClassBlock -> OptimizerState ClassBlock
@@ -62,12 +76,8 @@ optimizeExtIdent (ArrId pos ident expr) = do
     return $ ArrId pos ident newExpr
 
 optimizeExtIdent (AttrId pos expr1 expr2) = do
-    newExpr1 <- case expr1 of
-            EVar _ _ -> return expr1
-            _        -> optimizeExpr expr1
-    newExpr2 <- case expr2 of
-            EVar _ _ -> return expr2
-            _        -> optimizeExpr expr2
+    newExpr1 <- optimizeExpr expr1
+    newExpr2 <- optimizeExpr expr2
     return $ AttrId pos newExpr1 newExpr2
 
 optimizeStmt :: Stmt -> OptimizerState Stmt
@@ -78,20 +88,29 @@ optimizeStmt (BStmt pos block) = do
     return $ BStmt pos newBlock
 
 optimizeStmt (Decl pos t items) = do
-    newItems <- mapM optimizeItem items
+    newItems <- mapM (optimizeItem t) items
     return $ Decl pos t newItems
 
 optimizeStmt (Ass pos ident expr) = do
     newExpr <- optimizeExpr expr
     newIdent <- optimizeExtIdent ident
+    case newIdent of
+        Id _ i -> constFromExpr newExpr i
+        _      -> return ()
     return $ Ass pos newIdent newExpr
 
 optimizeStmt (Incr pos ident) = do
     newIdent <- optimizeExtIdent ident
+    case ident of
+        Id _ i -> modify (\s -> s {consts = M.adjust (\(t, v) -> (t, IntV (castInteger v + 1))) i (consts s)})
+        _      -> return ()
     return $ Incr pos newIdent
 
 optimizeStmt (Decr pos ident) = do
     newIdent <- optimizeExtIdent ident
+    case ident of
+        Id _ i -> modify (\s -> s {consts = M.adjust (\(t, v) -> (t, IntV $ castInteger v - 1)) i (consts s)})
+        _      -> return ()
     return $ Decr pos newIdent
 
 optimizeStmt (Ret pos expr) = do
@@ -102,38 +121,54 @@ optimizeStmt (VRet pos) = return $ VRet pos
 
 optimizeStmt (Cond pos expr stmt) = do
     newExpr <- optimizeExpr expr
+    removeChanges [stmt]
     st <- get
-    newStmt <- optimizeStmt stmt
+    newStmt <- localOptimizerEnv st $ optimizeStmt stmt
     return $ Cond pos newExpr newStmt
 
 optimizeStmt (CondElse pos expr stmt1 stmt2) = do
     newExpr <- optimizeExpr expr
+    removeChanges [stmt1]
+    removeChanges [stmt2]
     st <- get
-    newStmt1 <- optimizeStmt stmt1
-    newStmt2 <- optimizeStmt stmt2
+    newStmt1 <- localOptimizerEnv st $optimizeStmt stmt1
+    newStmt2 <- localOptimizerEnv st $optimizeStmt stmt2
     return $ CondElse pos newExpr newStmt1 newStmt2
 
 optimizeStmt (While pos expr stmt) = do
+    removeChanges [stmt]
     newExpr <- optimizeExpr expr
     st <- get
-    newStmt <- optimizeStmt stmt
+    newStmt <- localOptimizerEnv st $ optimizeStmt stmt
     return $ While pos newExpr newStmt
 
 optimizeStmt (For pos t ident1 ident2 stmt) = do
-    st <- get
-    newStmt <- optimizeStmt stmt
     newIdent <- optimizeExtIdent ident2
+    let (_, changes) = getDefsAndChanges [Decl Nothing t [NoInit Nothing ident1], stmt] (S.empty, S.empty)
+    mapM_ removeConst changes
+    st <- get
+    newStmt <- localOptimizerEnv (st {consts = M.delete ident1 (consts st)}) $ optimizeStmt stmt
     return $ For pos t ident1 newIdent newStmt
 
 optimizeStmt (SExp pos expr) = do
     newExpr <- optimizeExpr expr
     return $ SExp pos newExpr
 
-optimizeItem :: Item -> OptimizerState Item
-optimizeItem i@(NoInit pos ident) = return i
+optimizeItem :: Type -> Item -> OptimizerState Item
+optimizeItem t i@(NoInit pos ident) =
+    case t of
+      Primitive _ pt -> do
+        addConst ident (pt, case pt of
+          Int _   -> IntV 0
+          Str ma  -> StrV ""
+          Bool ma -> BoolV False
+          _       -> undefined)
+        return i
+      _ -> return i
 
-optimizeItem (Init pos ident expr) = do
+optimizeItem t (Init pos ident expr) = do
     newExpr <- optimizeExpr expr
+    constFromExpr newExpr ident
     return $ Init pos ident newExpr
 
 optimizeExpr :: Expr -> OptimizerState Expr
@@ -162,7 +197,7 @@ optimizeExpr(EArr pos ident expr) = do
     newExpr <- optimizeExpr expr
     return $ EArr pos ident newExpr
 
-optimizeExpr(EVar pos ident) = return $ EVar pos ident
+optimizeExpr e@(EVar pos ident) = mapConst e
 
 optimizeExpr(ELitInt pos integer) = return $ ELitInt pos integer
 
@@ -264,12 +299,6 @@ optimizeExpr(EOr pos expr1 expr2) = do
         newExpr2 <- optimizeExpr expr2
         return $ EOr pos newExpr1 newExpr2
 
-retBoolLit :: BNFC'Position -> Bool -> OptimizerState Expr
-retBoolLit pos b =
-    if b then
-            return $ ELitTrue pos
-    else
-            return $ ELitFalse pos
 
 ---------------------------------------------------------------------------------------------------------------
 

@@ -198,6 +198,10 @@ rawFun :: Type -> Type
 rawFun r = Fun Nothing (raw r) []
 rawExtIdent = Id Nothing
 
+rawPrimInt = Int Nothing
+rawPrimStr = Str Nothing
+rawPrimBool = Bool Nothing
+rawPrimVoid = Void Nothing
 
 printProgram :: Program -> String
 printProgram (Program _ defs ) = concatMap printTopDef defs

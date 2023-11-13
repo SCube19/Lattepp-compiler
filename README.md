@@ -41,13 +41,14 @@ Example
         - Abstract:
             - dead code removal based on conditional statements with known values and return statements
             - abstract tree based constant folding
+            - constant propagation
         - Quadruples:
             - local copy propagation
-            - dead code removal
+            - dead code removal (for example unused variables)
             - LCSE
         - Asm:
-            - constant propagation (implemented during register allocation due to how quadruples implemented by me work)
             - simple optimizations of reduntant instructions
+                (for example removal of mov r1, r2; mov r2, r1 pairs)
     - Implemented extenstions:
         - arrays
         - structures
