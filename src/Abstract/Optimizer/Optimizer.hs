@@ -1,13 +1,16 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 module Abstract.Optimizer.Optimizer where
 
 import           Abstract.Optimizer.Data    (OptimizerS (OptimizerS, consts),
                                              OptimizerState,
                                              Value (BoolV, IntV, StrV),
-                                             addConst, castBool, castInteger,
-                                             castString, constFromExpr,
-                                             localOptimizerEnv, mapConst,
-                                             removeChanges, removeConst,
-                                             resetConst, retBoolLit)
+                                             ValueType (makeValue), addConst,
+                                             castBool, castInteger, castString,
+                                             constFromExpr, extractValue,
+                                             isIntV, localOptimizerEnv,
+                                             mapConst, removeChanges,
+                                             removeConst, resetConst,
+                                             retBoolLit)
 import           Abstract.Optimizer.Utils
 import           Control.Monad.IO.Class     (MonadIO (liftIO))
 import           Control.Monad.Trans.Except (ExceptT, runExceptT)
@@ -15,11 +18,12 @@ import           Control.Monad.Trans.State  (StateT (runStateT), evalStateT,
                                              get, gets, modify, put)
 import           Data.Foldable              (Foldable (foldl'))
 import qualified Data.Map                   as M
+import           Data.Maybe                 (fromJust, isJust)
 import qualified Data.Set                   as S
 import           Debug.Trace
 import           Syntax.AbsLattepp
-import           Utils                      (Raw (raw), rawBool, rawExtIdent,
-                                             rawInt, rawStr)
+import           Utils                      (Raw (raw), prettyPrint, rawBool,
+                                             rawExtIdent, rawInt, rawStr)
 
 optimize :: Program -> ExceptT String IO Program
 optimize p@(Program pos defs) = do
@@ -72,13 +76,13 @@ optimizeExtIdent :: ExtIdent -> OptimizerState ExtIdent
 optimizeExtIdent (Id pos ident) = return $ Id pos ident
 
 optimizeExtIdent (ArrId pos ident expr) = do
-    newExpr <- optimizeExpr expr
-    return $ ArrId pos ident newExpr
+    (newExpr, m) <- optimizeExpr expr
+    return $ ArrId pos ident (reconstructExpr newExpr m)
 
 optimizeExtIdent (AttrId pos expr1 expr2) = do
-    newExpr1 <- optimizeExpr expr1
-    newExpr2 <- optimizeExpr expr2
-    return $ AttrId pos newExpr1 newExpr2
+    (newExpr1, m1) <- optimizeExpr expr1
+    (newExpr2, m2) <- optimizeExpr expr2
+    return $ AttrId pos (reconstructExpr newExpr1 m1) (reconstructExpr newExpr2 m2)
 
 optimizeStmt :: Stmt -> OptimizerState Stmt
 optimizeStmt (Empty pos) = return $ Empty pos
@@ -92,12 +96,13 @@ optimizeStmt (Decl pos t items) = do
     return $ Decl pos t newItems
 
 optimizeStmt (Ass pos ident expr) = do
-    newExpr <- optimizeExpr expr
+    (newExpr, m) <- optimizeExpr expr
+    let reconstructed = reconstructExpr newExpr m
     newIdent <- optimizeExtIdent ident
     case newIdent of
-        Id _ i -> constFromExpr newExpr i
+        Id _ i -> constFromExpr reconstructed i
         _      -> return ()
-    return $ Ass pos newIdent newExpr
+    return $ Ass pos newIdent reconstructed
 
 optimizeStmt (Incr pos ident) = do
     newIdent <- optimizeExtIdent ident
@@ -114,33 +119,33 @@ optimizeStmt (Decr pos ident) = do
     return $ Decr pos newIdent
 
 optimizeStmt (Ret pos expr) = do
-    newExpr <- optimizeExpr expr
-    return $ Ret pos expr
+    (newExpr, m) <- optimizeExpr expr
+    return $ Ret pos (reconstructExpr newExpr m)
 
 optimizeStmt (VRet pos) = return $ VRet pos
 
 optimizeStmt (Cond pos expr stmt) = do
-    newExpr <- optimizeExpr expr
+    (newExpr, m) <- optimizeExpr expr
     removeChanges [stmt]
     st <- get
     newStmt <- localOptimizerEnv st $ optimizeStmt stmt
-    return $ Cond pos newExpr newStmt
+    return $ Cond pos (reconstructExpr newExpr m) newStmt
 
 optimizeStmt (CondElse pos expr stmt1 stmt2) = do
-    newExpr <- optimizeExpr expr
+    (newExpr, m) <- optimizeExpr expr
     removeChanges [stmt1]
     removeChanges [stmt2]
     st <- get
     newStmt1 <- localOptimizerEnv st $optimizeStmt stmt1
     newStmt2 <- localOptimizerEnv st $optimizeStmt stmt2
-    return $ CondElse pos newExpr newStmt1 newStmt2
+    return $ CondElse pos (reconstructExpr newExpr m) newStmt1 newStmt2
 
 optimizeStmt (While pos expr stmt) = do
     removeChanges [stmt]
-    newExpr <- optimizeExpr expr
+    (newExpr, m) <- optimizeExpr expr
     st <- get
     newStmt <- localOptimizerEnv st $ optimizeStmt stmt
-    return $ While pos newExpr newStmt
+    return $ While pos (reconstructExpr newExpr m) newStmt
 
 optimizeStmt (For pos t ident1 ident2 stmt) = do
     newIdent <- optimizeExtIdent ident2
@@ -151,8 +156,8 @@ optimizeStmt (For pos t ident1 ident2 stmt) = do
     return $ For pos t ident1 newIdent newStmt
 
 optimizeStmt (SExp pos expr) = do
-    newExpr <- optimizeExpr expr
-    return $ SExp pos newExpr
+    (newExpr, m) <- optimizeExpr expr
+    return $ SExp pos (reconstructExpr newExpr m)
 
 optimizeItem :: Type -> Item -> OptimizerState Item
 optimizeItem t i@(NoInit pos ident) =
@@ -167,138 +172,247 @@ optimizeItem t i@(NoInit pos ident) =
       _ -> return i
 
 optimizeItem t (Init pos ident expr) = do
-    newExpr <- optimizeExpr expr
-    constFromExpr newExpr ident
-    return $ Init pos ident newExpr
+    (newExpr, m) <- optimizeExpr expr
+    let reconstructed = reconstructExpr newExpr m
+    constFromExpr reconstructed ident
+    return $ Init pos ident reconstructed
 
-optimizeExpr :: Expr -> OptimizerState Expr
+optimizeExpr :: Expr -> OptimizerState (Expr, Maybe (Value, Either MulOp AddOp))
 optimizeExpr(ECast pos ident expr) = do
-    newExpr <- optimizeExpr expr
-    return $ ECast pos ident newExpr
+    (newExpr, m) <- optimizeExpr expr
+    return (ECast pos ident (reconstructExpr newExpr m), Nothing)
 
 optimizeExpr(ECastPrim pos t expr) = do
-    newExpr <- optimizeExpr expr
-    return $ ECastPrim pos t newExpr
+    (newExpr, m) <- optimizeExpr expr
+    return (ECastPrim pos t (reconstructExpr newExpr m), Nothing)
 
-optimizeExpr(ENewObject pos ident) = return $ ENewObject pos ident
+optimizeExpr(ENewObject pos ident) = return (ENewObject pos ident, Nothing)
 
 optimizeExpr(ENewArr pos t expr) = do
-    newExpr <- optimizeExpr expr
-    return $ ENewArr pos t newExpr
+    (newExpr, m) <- optimizeExpr expr
+    return (ENewArr pos t (reconstructExpr newExpr m), Nothing)
 
-optimizeExpr(ENull pos) = return $ ENull pos
+optimizeExpr(ENull pos) = return (ENull pos, Nothing)
 
 optimizeExpr(EObject pos expr1 expr2) = do
-    newExpr1 <- optimizeExpr expr1
-    newExpr2 <- optimizeExpr expr2
-    return $ EObject pos newExpr1 newExpr2
+    (newExpr1, m1) <- optimizeExpr expr1
+    (newExpr2, m2) <- optimizeExpr expr2
+    return (EObject pos (reconstructExpr newExpr1 m1) (reconstructExpr newExpr2 m2), Nothing)
 
 optimizeExpr(EArr pos ident expr) = do
-    newExpr <- optimizeExpr expr
-    return $ EArr pos ident newExpr
+    (newExpr, m) <- optimizeExpr expr
+    return (EArr pos ident (reconstructExpr newExpr m), Nothing)
 
-optimizeExpr e@(EVar pos ident) = mapConst e
+optimizeExpr e@(EVar pos ident) = do
+    newExpr <- mapConst e
+    return (newExpr, Nothing)
 
-optimizeExpr(ELitInt pos integer) = return $ ELitInt pos integer
+optimizeExpr(ELitInt pos integer) = return (ELitInt pos integer, Nothing)
 
-optimizeExpr(ELitTrue pos) = return $ ELitTrue pos
+optimizeExpr(ELitTrue pos) = return (ELitTrue pos, Nothing)
 
-optimizeExpr(ELitFalse pos) = return $ ELitFalse pos
+optimizeExpr(ELitFalse pos) = return (ELitFalse pos, Nothing)
 
 optimizeExpr(EApp pos ident exprs) = do
     newExprs <- mapM optimizeExpr exprs
-    return $ EApp pos ident newExprs
+    return (EApp pos ident (map (uncurry reconstructExpr) newExprs), Nothing)
 
-optimizeExpr(EString pos string) = return $ EString pos string
+optimizeExpr(EString pos string) = return (EString pos string, Nothing)
 
 optimizeExpr(Neg pos expr) = do
-    newExpr <- optimizeExpr expr
+    (newExpr, m) <- optimizeExpr expr
     case newExpr of
-        ELitInt _ val -> return $ ELitInt pos (-val)
-        newExpr       -> return $ Neg pos newExpr
+        ELitInt _ val -> return (ELitInt pos (-val), Nothing)
+        newExpr       -> return (Neg pos (reconstructExpr newExpr m), Nothing)
 
 optimizeExpr(Not pos expr) = do
-    newExpr <- optimizeExpr expr
+    (newExpr, m) <- optimizeExpr expr
     case newExpr of
-        ELitTrue _  -> return $ ELitFalse pos
-        ELitFalse _ -> return $ ELitTrue pos
-        newExpr     -> return $ Not pos newExpr
+        ELitTrue _  -> return (ELitFalse pos, Nothing)
+        ELitFalse _ -> return (ELitTrue pos, Nothing)
+        newExpr     -> return (Not pos (reconstructExpr newExpr m), Nothing)
 
 optimizeExpr (EMul pos expr1 op expr2) = do
-    newExpr1 <- optimizeExpr expr1
-    newExpr2 <- optimizeExpr expr2
+    (newExpr1, m1) <- optimizeExpr expr1
+    (newExpr2, m2) <- optimizeExpr expr2
     if isELitInt newExpr1 && isELitInt newExpr2 then
-        return $ ELitInt pos (case op of
-            Times _ -> extractInt newExpr1 * extractInt newExpr2
-            Div _   -> extractInt newExpr1 `div` extractInt newExpr2
-            Mod _   -> extractInt newExpr1 `rem` extractInt newExpr2)
+        return (ELitInt pos (convMulOp op (extractInt newExpr1) (extractInt newExpr2)), Nothing)
     else
-        return $ EMul pos newExpr1 op newExpr2
+        let reconstructed1 = reconstructExpr newExpr1 m1 in
+        let reconstructed2 = reconstructExpr newExpr2 m2 in
+        case op of
+            Times _ ->
+                if isELitInt newExpr1 && isJust m2 then do
+                    let (val2, op2) = fromJust m2 in
+                        if isTimes op2 then
+                            return (newExpr2, Just (IntV $ extractInt newExpr1 * castInteger val2, Left op))
+                        else
+                            return (reconstructed2, Just (IntV $ extractInt newExpr1, Left op))
+                else if isELitInt newExpr2 && isJust m1 then do
+                    let (val1, op1) = fromJust m1 in
+                        if isTimes op1 then do
+                            return (newExpr1, Just (IntV $ extractInt newExpr2 * castInteger val1, Left op))
+                        else
+                            return (reconstructed1, Just (IntV $ extractInt newExpr2, Left op))
+                else if isJust m1 && isJust m2 then do
+                    let (val1, op1) = fromJust m1 in
+                        let (val2, op2) = fromJust m2 in
+                        if isTimes op1 && isTimes op2 then
+                            return (EMul pos newExpr1 op newExpr2, Just (IntV $ castInteger val1 * castInteger val2, Left op))
+                        else if isTimes op1 then
+                            return (EMul pos newExpr1 op reconstructed2, Just (val1, Left op))
+                        else if isTimes op2 then
+                            return (EMul pos reconstructed1 op newExpr2, Just (val2, Left op))
+                        else
+                            return (EMul pos reconstructed1 op reconstructed2, Nothing)
+                else if isELitInt newExpr1 then do
+                    return (newExpr2, Just (IntV $ extractInt newExpr1, Left op))
+                else if isELitInt newExpr2 then
+                    return (newExpr1, Just (IntV $ extractInt newExpr2, Left op))
+                else if isJust m1 then
+                    let (val1, op1) = fromJust m1 in
+                    if isTimes op1 then
+                        return (EMul pos newExpr1 op newExpr2, Just (val1, Left op))
+                    else
+                        return (EMul pos reconstructed1 op newExpr2, Nothing)
+                else if isJust m2 then
+                    let (val2, op2) = fromJust m2 in
+                   if isTimes op2 then
+                        return (EMul pos newExpr1 op newExpr2, Just (val2, Left op))
+                    else
+                        return (EMul pos newExpr1 op reconstructed2, Nothing)
+                else return (EMul pos reconstructed1 op reconstructed2, Nothing)
+            _ -> return (EMul pos reconstructed1 op reconstructed2, Nothing)
+
 
 optimizeExpr (EAdd pos expr1 op expr2) = do
-    newExpr1 <- optimizeExpr expr1
-    newExpr2 <- optimizeExpr expr2
-    if isELitInt newExpr1 && isELitInt newExpr2 then
-        return $ ELitInt pos (case op of
-            Plus _  -> extractInt newExpr1 + extractInt newExpr2
-            Minus _ -> extractInt newExpr1 - extractInt newExpr2)
-    else if isEString newExpr1 && isEString newExpr2 then
-        return $ EString pos (case op of
-           Plus _  -> extractString newExpr1 ++ extractString newExpr2
-           Minus _ -> undefined
-        )
-    else
-        return $ EAdd pos newExpr1 op newExpr2
+    (newExpr1, m1) <- optimizeExpr expr1
+    (newExpr2, m2) <- optimizeExpr expr2
+    let reconstructed1 = reconstructExpr newExpr1 m1 in
+        let reconstructed2 = reconstructExpr newExpr2 m2 in
+        if isELitInt newExpr1 && isELitInt newExpr2 then
+            return (ELitInt pos (convAddOp op (extractInt newExpr1) (extractInt newExpr2)), Nothing)
+        else if isEString newExpr1 && isEString newExpr2 then
+            return (EString pos (case op of
+                Plus _  -> extractString newExpr1 ++ extractString newExpr2
+                Minus _ -> undefined
+                ), Nothing)
+        else
+                let reconstructed1 = reconstructExpr newExpr1 m1 in
+                let reconstructed2 = reconstructExpr newExpr2 m2 in
+                case op of
+                    Plus _ ->
+                        if (isELitInt newExpr1 || isELitString newExpr1) && isJust m2 then do
+                            let (val2, op2) = fromJust m2 in
+                                if isPlus op2 then
+                                    return (newExpr2, Just (extractValue newExpr1 + val2, Right op))
+                                else
+                                    return (reconstructed2, Just (extractValue newExpr1, Right op))
+                        else if (isELitInt newExpr2 || isELitString newExpr2) && isJust m1 then do
+                            let (val1, op1) = fromJust m1 in
+                                if isPlus op1 then do
+                                    return (newExpr1, Just (extractValue newExpr2 + val1, Right op))
+                                else
+                                    return (reconstructed1, Just (extractValue newExpr2, Right op))
+                        else if isJust m1 && isJust m2 then do
+                            let (val1, op1) = fromJust m1 in
+                                let (val2, op2) = fromJust m2 in
+                                if isPlus op1 && isPlus op2 then
+                                    return (EAdd pos newExpr1 op newExpr2, Just (val1 + val2, Right op))
+                                else if isPlus op1 then
+                                    return (EAdd pos newExpr1 op reconstructed2, Just (val1, Right op))
+                                else if isPlus op2 then
+                                    return (EAdd pos reconstructed1 op newExpr2, Just (val2, Right op))
+                                else
+                                    return (EAdd pos reconstructed1 op reconstructed2, Nothing)
+                        else if isELitInt newExpr1 || isELitString newExpr1 then do
+                            return (newExpr2, Just (extractValue newExpr1, Right op))
+                        else if isELitInt newExpr2 || isELitString newExpr2 then
+                            return (newExpr1, Just (extractValue newExpr2, Right op))
+                        else if isJust m1 then
+                            let (val1, op1) = fromJust m1 in
+                            if isPlus op1 then
+                                return (EAdd pos newExpr1 op newExpr2, Just (val1, Right op))
+                            else
+                                return (EAdd pos reconstructed1 op newExpr2, Nothing)
+                        else if isJust m2 then
+                            let (val2, op2) = fromJust m2 in
+                        if isPlus op2 then
+                                return (EAdd pos newExpr1 op newExpr2, Just (val2, Right op))
+                            else
+                                return (EAdd pos newExpr1 op reconstructed2, Nothing)
+                        else return (EAdd pos reconstructed1 op reconstructed2, Nothing)
+                    _ -> return (EAdd pos reconstructed1 op reconstructed2, Nothing)
 
 optimizeExpr(ERel pos expr1 op expr2) = do
-    newExpr1 <- optimizeExpr expr1
-    newExpr2 <- optimizeExpr expr2
-    if isELitInt newExpr1 && isELitInt newExpr2 then do
-        let result = (case op of
-                LTH _ -> extractInt newExpr1 < extractInt newExpr2
-                LE _  -> extractInt newExpr1 <= extractInt newExpr2
-                GTH _ -> extractInt newExpr1 > extractInt newExpr2
-                GE _  -> extractInt newExpr1 >= extractInt newExpr2
-                EQU _ -> extractInt newExpr1 == extractInt newExpr2
-                NE _  -> extractInt newExpr1 /= extractInt newExpr2)
-        retBoolLit pos result
-    else if isELitBool newExpr1 && isELitBool newExpr2 then do
-        let result = (case op of
-                EQU _ -> extractBool newExpr1 == extractBool newExpr2
-                NE _  -> extractBool newExpr1 /= extractBool newExpr2
-                _     -> undefined)
-        retBoolLit pos result
-    else if isEString newExpr1 && isEString newExpr2 then do
-        let result = (case op of
-                EQU _ -> extractString newExpr1 == extractString newExpr2
-                NE _  -> extractString newExpr1 /= extractString newExpr2
-                _     -> undefined)
-        retBoolLit pos result
-    else
-        return $ ERel pos newExpr1 op newExpr2
+    (newExpr1, m1) <- optimizeExpr expr1
+    (newExpr2, m2) <- optimizeExpr expr2
+    let reconstructed1 = reconstructExpr newExpr1 m1 in
+        let reconstructed2 = reconstructExpr newExpr2 m2 in
+        if isELitInt reconstructed1 && isELitInt reconstructed2 then do
+            let result = (case op of
+                    LTH _ -> extractInt reconstructed1 < extractInt  reconstructed2
+                    LE _  -> extractInt reconstructed1 <= extractInt reconstructed2
+                    GTH _ -> extractInt reconstructed1 > extractInt  reconstructed2
+                    GE _  -> extractInt reconstructed1 >= extractInt reconstructed2
+                    EQU _ -> extractInt reconstructed1 == extractInt reconstructed2
+                    NE _  -> extractInt reconstructed1 /= extractInt reconstructed2)
+            retBoolLit pos result
+        else if isELitBool reconstructed1 && isELitBool reconstructed2 then do
+            let result = (case op of
+                    EQU _ -> extractBool reconstructed1 == extractBool reconstructed2
+                    NE _  -> extractBool reconstructed1 /= extractBool reconstructed2
+                    _     -> undefined)
+            retBoolLit pos result
+        else if isEString reconstructed1 && isEString reconstructed2 then do
+            let result = (case op of
+                    EQU _ -> extractString reconstructed1 == extractString reconstructed2
+                    NE _  -> extractString reconstructed1 /= extractString reconstructed2
+                    _     -> undefined)
+            retBoolLit pos result
+        else
+            return (ERel pos reconstructed1 op reconstructed2, Nothing)
 
+-- jeszcze pogrzebać
 optimizeExpr(EAnd pos expr1 expr2) = do
-    newExpr1 <- optimizeExpr expr1
-    if isELitBool newExpr1 then
-        case newExpr1 of
-            ELitFalse _ -> return $ ELitFalse pos
-            ELitTrue _  -> optimizeExpr expr2
-            _           -> undefined
-    else do
-        newExpr2 <- optimizeExpr expr2
-        return $ EAnd pos newExpr1 newExpr2
+    (newExpr1, m1) <- optimizeExpr expr1
+    let reconstructed1 = reconstructExpr newExpr1 m1 in
+        if isELitBool reconstructed1 then
+            case reconstructed1 of
+                ELitFalse _ -> retBoolLit pos False
+                ELitTrue _  -> optimizeExpr expr2
+                _           -> undefined
+        else do
+            (newExpr2, m2) <- optimizeExpr expr2
+            let reconstructed2 = reconstructExpr newExpr2 m2 in
+                return (EAnd pos reconstructed1 reconstructed2, Nothing)
 
 optimizeExpr(EOr pos expr1 expr2) = do
-    newExpr1 <- optimizeExpr expr1
-    if isELitBool newExpr1 then
-        case newExpr1 of
-            ELitTrue _  -> return $ ELitTrue pos
-            ELitFalse _ -> optimizeExpr expr2
-            _           -> undefined
-    else do
-        newExpr2 <- optimizeExpr expr2
-        return $ EOr pos newExpr1 newExpr2
+    (newExpr1, m1) <- optimizeExpr expr1
+    let reconstructed1 = reconstructExpr newExpr1 m1 in
+        if isELitBool reconstructed1 then
+            case reconstructed1 of
+                ELitTrue _  -> retBoolLit pos True
+                ELitFalse _ -> optimizeExpr expr2
+                _           -> undefined
+        else do
+            (newExpr2, m2) <- optimizeExpr expr2
+            let reconstructed2 = reconstructExpr newExpr2 m2 in
+                return (EOr pos reconstructed1 reconstructed2, Nothing)
 
+
+reconstructExpr :: Expr -> Maybe (Value, Either MulOp AddOp) -> Expr
+reconstructExpr e Nothing = e
+reconstructExpr e (Just (v, op)) =
+    case op of
+        Left mulop ->
+            case mulop of
+                Times pos -> EMul pos e mulop (ELitInt pos $ castInteger v)
+                _         -> undefined
+        Right addop ->
+            case addop of
+                Plus pos -> EAdd pos e addop (if isIntV v then ELitInt pos $ castInteger v else EString pos $ castString v)
+                Minus pos -> undefined
 
 ---------------------------------------------------------------------------------------------------------------
 

@@ -1,3 +1,5 @@
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleInstances         #-}
 module Abstract.Optimizer.Data where
 import           Abstract.Optimizer.Utils   (extractBool, extractInt,
                                              extractString, getDefsAndChanges,
@@ -47,7 +49,7 @@ mapConst e@(EVar pos i) = do
   case M.lookup i c of
     Just (t, v) -> case t of
       Int _  -> return $ ELitInt pos $ castInteger v
-      Bool _ -> retBoolLit pos $ castBool v
+      Bool _ -> return $ if castBool v then ELitTrue pos else ELitFalse pos
       Str _  -> return $ EString pos $ castString v
       _      -> undefined
     Nothing -> return e
@@ -68,12 +70,24 @@ castString :: Value -> String
 castString (StrV v) = v
 castString _        = ""
 
-retBoolLit :: BNFC'Position -> Bool -> OptimizerState Expr
+isIntV :: Value -> Bool
+isIntV (IntV _) = True
+isIntV _        = False
+
+isBoolV :: Value -> Bool
+isBoolV (BoolV _) = True
+isBoolV _         = False
+
+isStrV :: Value -> Bool
+isStrV (StrV _) = True
+isStrV _        = False
+
+retBoolLit :: BNFC'Position -> Bool -> OptimizerState (Expr, Maybe (Value, Either MulOp AddOp))
 retBoolLit pos b =
   if b then
-          return $ ELitTrue pos
+          return (ELitTrue pos, Nothing)
   else
-          return $ ELitFalse pos
+          return (ELitFalse pos, Nothing)
 
 constFromExpr :: Expr -> Ident -> OptimizerState ()
 constFromExpr e ident = do
@@ -94,4 +108,48 @@ localOptimizerEnv changedEnv action = do
   put backup
   return result
 
+class ValueType a where
+  makeValue :: a -> Value
 
+instance ValueType Integer where
+  makeValue x = IntV x
+
+instance ValueType Bool where
+  makeValue x = BoolV x
+
+instance ValueType String where
+  makeValue x = StrV x
+
+--(+), (*), abs, signum, fromInteger, (negate | (-))
+instance Num Value where
+  (IntV v1) + (IntV v2)   = IntV (v1 + v2)
+  (BoolV v1) + (BoolV v2) = BoolV (v1 || v2)
+  (StrV v1) + (StrV v2)   = StrV (v1 ++ v2)
+  a + b                   = undefined
+
+  (IntV v1) * (IntV v2)   = IntV (v1 * v2)
+  (BoolV v1) * (BoolV v2) = BoolV (v1 && v2)
+  (StrV v1) * (StrV v2)   = undefined
+  a * b                   = undefined
+
+  abs (IntV v)  = IntV (abs v)
+  abs (BoolV v) = BoolV True
+  abs (StrV v)  = StrV v
+
+  signum (IntV v)  = IntV (signum v)
+  signum (BoolV v) = BoolV v
+  signum (StrV v)  = StrV v
+
+  negate (IntV v)  = IntV (negate v)
+  negate (BoolV v) = BoolV (not v)
+  negate (StrV v)  = StrV v
+
+  fromInteger i = IntV i
+
+
+extractValue :: Expr -> Value
+extractValue (ELitInt _ i) = makeValue i
+extractValue (ELitFalse _) = makeValue False
+extractValue (ELitTrue _)  = makeValue True
+extractValue (EString _ s) = makeValue s
+extractValue _             = undefined

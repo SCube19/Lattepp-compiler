@@ -1,4 +1,5 @@
 import           Abstract.Optimizer.Optimizer      (cleanDeadCode, optimize)
+import           Abstract.Optimizer.Propagate      (propagateNegAndMinus)
 import           Abstract.Self                     (addSelf)
 import           Abstract.Typechecker.TypeChecker  (checkReturn, typeCheck)
 import           Compiler.Compiler                 (compile)
@@ -30,10 +31,11 @@ runProgram :: String -> ExceptT String IO String
 runProgram s = do
   tokens <- tokenize s
   tcEnv <- typeCheck tokens
-  optimized <- optimize tokens
+  optimized <- optimize $ propagateNegAndMinus tokens
   tcEnv2 <- checkReturn optimized
   liftIO $ hPutStrLn stderr "OK"
   selfed <- addSelf optimized
+  liftIO $ writeFile "propagated.txt" $ printTree $ propagateNegAndMinus tokens
   liftIO $ writeFile "tokens.txt" $ printTree tokens
   liftIO $ writeFile "optimized.txt" $ printTree optimized
   liftIO $ writeFile "selfed.txt" $ printTree selfed

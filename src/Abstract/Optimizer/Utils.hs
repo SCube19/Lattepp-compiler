@@ -82,10 +82,27 @@ getDef (NoInit _ i) = i
 combineSetTuples :: Ord a => (S.Set a, S.Set a) -> (S.Set a, S.Set a) -> (S.Set a, S.Set a)
 combineSetTuples (a, b) (c, d) = (S.union a c, S.union b d)
 
+isTimes :: Either MulOp AddOp -> Bool
+isTimes (Left (Times _)) = True
+isTimes _                = False
 
+isPlus :: Either MulOp AddOp -> Bool
+isPlus (Right (Plus _)) = True
+isPlus _                = False
 
+convMulOp :: Integral a => MulOp -> a -> a -> a
+convMulOp op =
+  case op of
+    Times _ -> (*)
+    Div _   -> div
+    Mod _   -> rem
 
+convAddOp :: Integral a => AddOp -> a -> a -> a
+convAddOp op =
+  case op of
+    Plus ma  -> (+)
+    Minus ma -> (-)
 
-
-
-
+isAddOp :: Either MulOp AddOp -> Bool
+isAddOp (Right _) = True
+isAddOp _         = False
