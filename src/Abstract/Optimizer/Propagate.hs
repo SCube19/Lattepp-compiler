@@ -102,7 +102,7 @@ propagateExpr (EMul pos expr1 op expr2) neg =
     case neg of
         Nothing -> EMul pos (propagateExpr expr1 neg) op (propagateExpr expr2 neg)
         Just t -> case t of
-            Int _ ->  EMul pos (propagateExpr expr1 neg) op (propagateExpr expr2 neg)
+            Int _ ->  EMul pos (propagateExpr expr1 neg) op (propagateExpr expr2 Nothing)
             Bool _ -> EMul pos (propagateExpr expr1 Nothing) op (propagateExpr expr2 Nothing)
             _ -> undefined
 
